@@ -3,8 +3,9 @@ import { useParams } from "react-router-dom";
 import type { Square } from "chess.js";
 import { useAppContext } from "../context/AppContext";
 import { ChessBoard } from "../components/ChessBoard";
-import { attemptMove, getStatusText, getTurn } from "../lib/chess";
+import { attemptMove, getFriendlyGameMessage, getStatusText, getTurn } from "../lib/chess";
 import { getGameById, saveMove, subscribeToGame } from "../lib/appClient";
+import { getPostGameFeedback } from "../lib/gamification";
 import type { GameRecord } from "../types";
 
 export function GamePage() {
@@ -77,6 +78,7 @@ export function GamePage() {
   }
 
   const currentGame = game;
+  const postGameFeedback = getPostGameFeedback(game);
 
   function handleMove(from: Square, to: Square) {
     const result = attemptMove(currentGame.currentFen, from, to, currentUserId);
@@ -115,6 +117,10 @@ export function GamePage() {
     <div className="game-layout">
       <section className="card board-card">
         {error ? <p className="error-text">{error}</p> : null}
+        <div className={`encouragement-banner tone-${postGameFeedback.tone}`}>
+          <strong>{postGameFeedback.title}</strong>
+          <span>{postGameFeedback.body}</span>
+        </div>
         <div className="game-header">
           <div>
             <h1>
@@ -134,6 +140,9 @@ export function GamePage() {
         <p className="help-text">
           Trykk på en brikke for å velge den, eller hold inne et kort øyeblikk for å fremheve
           lovlige trekk og dra brikken til ønsket felt.
+        </p>
+        <p className="support-text">
+          {getFriendlyGameMessage(game.currentFen, game.moveHistory.length)}
         </p>
       </section>
 

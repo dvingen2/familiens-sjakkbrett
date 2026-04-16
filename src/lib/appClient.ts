@@ -3,10 +3,12 @@ import type { RealtimeChannel, Session, User } from "@supabase/supabase-js";
 import { getDefaultGames, getDefaultProfiles, getDefaultSession } from "./mockData";
 import {
   bootstrapLocalData,
+  createFamilyProfile,
   createGame as createLocalGame,
   getGames,
   getProfiles,
   getSession,
+  signInWithFamilyPin,
   setCurrentUser,
   updateGame,
 } from "./storage";
@@ -34,6 +36,18 @@ const LOCAL_AUTH_EVENT = "familiesjakk:auth-changed";
 
 function emitLocalAuthChanged() {
   window.dispatchEvent(new CustomEvent(LOCAL_AUTH_EVENT));
+}
+
+async function getCloudSession() {
+  if (!supabase) {
+    return null;
+  }
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  return session;
 }
 
 function ensureLocalProfileForUser(user: User) {
@@ -87,11 +101,13 @@ export async function getAuthState(): Promise<{ session: Session | null; user: U
     return localSessionToAuthState();
   }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const session = await getCloudSession();
 
-  return { session, user: session?.user ?? null };
+  if (!session) {
+    return localSessionToAuthState();
+  }
+
+  return { session, user: session.user ?? null };
 }
 
 export function subscribeToAuth(callback: (session: Session | null, user: User | null) => void) {
@@ -109,7 +125,12 @@ export function subscribeToAuth(callback: (session: Session | null, user: User |
   }
 
   const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-    callback(session, session?.user ?? null);
+    if (!session) {
+      const local = localSessionToAuthState();
+      callback(local.session, local.user);
+      return;
+    }
+    callback(session, session.user ?? null);
   });
 
   return () => {
@@ -151,13 +172,7 @@ export async function signUp(params: {
 
 export async function signIn(params: { email: string; password: string }): Promise<AuthResult> {
   if (!supabase) {
-    const profile = getProfiles().find((item) => item.email === params.email);
-    if (!profile) {
-      return { error: "Fant ingen lokal demo-bruker med den e-postadressen." };
-    }
-    setCurrentUser(profile.id);
-    emitLocalAuthChanged();
-    return {};
+    return { error: "Bruk familieprofil + PIN for lokal innlogging." };
   }
 
   const { error } = await supabase.auth.signInWithPassword(params);
@@ -165,9 +180,10 @@ export async function signIn(params: { email: string; password: string }): Promi
 }
 
 export async function signOut(): Promise<AuthResult> {
+  setCurrentUser(null);
+  emitLocalAuthChanged();
+
   if (!supabase) {
-    setCurrentUser(null);
-    emitLocalAuthChanged();
     return {};
   }
 
@@ -175,8 +191,31 @@ export async function signOut(): Promise<AuthResult> {
   return error ? { error: error.message } : {};
 }
 
+export async function signInFamily(displayName: string, pin: string): Promise<AuthResult> {
+  const result = signInWithFamilyPin(displayName, pin);
+  if ("error" in result) {
+    return { error: result.error };
+  }
+
+  emitLocalAuthChanged();
+  return {};
+}
+
+export async function registerFamily(displayName: string, pin: string): Promise<AuthResult> {
+  createFamilyProfile(displayName, pin);
+  const result = signInWithFamilyPin(displayName, pin);
+  if ("error" in result) {
+    return { error: result.error };
+  }
+
+  emitLocalAuthChanged();
+  return {};
+}
+
 export async function ensureProfile(user: User): Promise<Profile> {
-  if (!supabase) {
+  const session = await getCloudSession();
+
+  if (!supabase || !session || session.user.id !== user.id) {
     ensureLocalProfileForUser(user);
     return (
       getProfiles().find((profile) => profile.id === user.id) ?? getDefaultProfiles()[0]
@@ -217,6 +256,11 @@ export async function listProfiles(): Promise<Profile[]> {
     return getProfiles();
   }
 
+  const session = await getCloudSession();
+  if (!session) {
+    return getProfiles();
+  }
+
   const { data, error } = await supabase
     .from("profiles")
     .select("id, display_name, email")
@@ -231,6 +275,11 @@ export async function listProfiles(): Promise<Profile[]> {
 
 export async function listGamesForUser(): Promise<GameRecord[]> {
   if (!supabase) {
+    return getGames();
+  }
+
+  const session = await getCloudSession();
+  if (!session) {
     return getGames();
   }
 
@@ -250,6 +299,11 @@ export async function listGamesForUser(): Promise<GameRecord[]> {
 
 export async function getGameById(gameId: string): Promise<GameRecord | null> {
   if (!supabase) {
+    return getGames().find((item) => item.id === gameId) ?? null;
+  }
+
+  const session = await getCloudSession();
+  if (!session) {
     return getGames().find((item) => item.id === gameId) ?? null;
   }
 
@@ -276,7 +330,9 @@ export async function createGameForCurrentUser(
   profiles: Profile[],
   input: CreateGameInput,
 ): Promise<GameRecord> {
-  if (!supabase || !user) {
+  const session = await getCloudSession();
+
+  if (!supabase || !user || !session || session.user.id !== user.id) {
     const fallbackOpponent =
       profiles.find((profile) => profile.id !== getSession().currentUserId) ?? getDefaultProfiles()[1];
 
@@ -335,7 +391,9 @@ export async function createGameForCurrentUser(
 }
 
 export async function saveMove(input: MoveInput): Promise<GameRecord> {
-  if (!supabase) {
+  const session = await getCloudSession();
+
+  if (!supabase || !session) {
     const nextGame: GameRecord = {
       ...input.game,
       currentFen: input.fen,
@@ -397,6 +455,12 @@ export function subscribeToGame(gameId: string, callback: () => void): (() => vo
   if (!supabase) {
     return () => undefined;
   }
+
+  void getCloudSession().then((session) => {
+    if (!session) {
+      return;
+    }
+  });
 
   const client = supabase;
 

@@ -13,11 +13,14 @@ import {
   getAuthState,
   isUsingSupabase,
   listProfiles,
+  registerFamily,
+  signInFamily,
   signIn,
   signOut,
   signUp,
   subscribeToAuth,
 } from "../lib/appClient";
+import { getProfiles as getLocalProfiles } from "../lib/storage";
 import type { Profile } from "../types";
 
 interface AppContextValue {
@@ -28,6 +31,8 @@ interface AppContextValue {
   profile: Profile | null;
   profiles: Profile[];
   refreshProfiles: () => Promise<void>;
+  signInFamilyProfile: (displayName: string, pin: string) => Promise<{ error?: string }>;
+  registerFamilyProfile: (displayName: string, pin: string) => Promise<{ error?: string }>;
   signInWithPassword: (email: string, password: string) => Promise<{ error?: string }>;
   signUpWithPassword: (
     email: string,
@@ -59,6 +64,15 @@ export function AppProvider({ children }: PropsWithChildren) {
 
     if (!nextUser) {
       setProfile(null);
+      await refreshProfiles();
+      setIsLoading(false);
+      return;
+    }
+
+    if (!nextSession) {
+      const localProfile =
+        getLocalProfiles().find((item) => item.id === nextUser.id) ?? null;
+      setProfile(localProfile);
       await refreshProfiles();
       setIsLoading(false);
       return;
@@ -98,6 +112,8 @@ export function AppProvider({ children }: PropsWithChildren) {
       profile,
       profiles,
       refreshProfiles,
+      signInFamilyProfile: (displayName, pin) => signInFamily(displayName, pin),
+      registerFamilyProfile: (displayName, pin) => registerFamily(displayName, pin),
       signInWithPassword: (email, password) => signIn({ email, password }),
       signUpWithPassword: (email, password, displayName) =>
         signUp({ email, password, displayName }),

@@ -6,6 +6,7 @@ export interface Profile {
   id: string;
   displayName: string;
   email: string;
+  pin?: string;
 }
 
 export interface MoveRecord {

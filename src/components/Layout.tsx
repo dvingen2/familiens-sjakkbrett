@@ -1,11 +1,20 @@
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { useAppContext } from "../context/AppContext";
+import { usePwaContext } from "../context/PwaContext";
+import { ProfileAvatar } from "./ProfileAvatar";
 
 export function Layout() {
   const { profile, signOutCurrentUser } = useAppContext();
+  const { isOnline } = usePwaContext();
 
   return (
     <div className="shell">
+      {!isOnline ? (
+        <div className="offline-banner">
+          Offline-modus er aktiv. Lokale spill og familieprofiler virker fortsatt på denne enheten.
+        </div>
+      ) : null}
+
       <header className="topbar">
         <Link className="brand" to="/">
           <span className="brand-mark">♞</span>
@@ -24,7 +33,10 @@ export function Layout() {
         <div className="topbar-user">
           {profile ? (
             <>
-              <span className="signed-in-as">Innlogget som {profile.displayName}</span>
+              <span className="signed-in-chip">
+                <ProfileAvatar profile={profile} size="sm" />
+                <span className="signed-in-as">Innlogget som {profile.displayName}</span>
+              </span>
               <button
                 type="button"
                 className="button button-secondary topbar-button"

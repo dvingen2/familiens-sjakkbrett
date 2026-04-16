@@ -55,6 +55,16 @@ select {
   padding: 1rem 0 3rem;
 }
 
+.offline-banner {
+  padding: 0.85rem 1rem;
+  margin: 0.75rem 0 0;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(179, 107, 62, 0.18), rgba(232, 181, 86, 0.18));
+  border: 1px solid rgba(179, 107, 62, 0.2);
+  color: #6f4020;
+  font-weight: 700;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -111,6 +121,16 @@ select {
   gap: 0.7rem;
   flex-wrap: wrap;
   justify-content: end;
+}
+
+.signed-in-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.35rem 0.55rem 0.35rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid var(--line);
 }
 
 .signed-in-as {
@@ -313,6 +333,48 @@ select {
   font-weight: 600;
 }
 
+.profile-avatar {
+  --avatar-color: var(--accent);
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--avatar-color), color-mix(in srgb, var(--avatar-color) 65%, white));
+  color: white;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  flex: 0 0 auto;
+}
+
+.profile-avatar-sm {
+  width: 2rem;
+  height: 2rem;
+  font-size: 0.72rem;
+}
+
+.profile-avatar-md {
+  width: 2.55rem;
+  height: 2.55rem;
+  font-size: 0.92rem;
+}
+
+.login-user-main {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.login-user-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.login-user-meta {
+  color: var(--accent-strong);
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+
 .login-user {
   display: flex;
   justify-content: space-between;
@@ -328,6 +390,112 @@ select {
 .login-user.is-active {
   background: var(--accent-soft);
   border-color: rgba(47, 111, 79, 0.3);
+}
+
+.encouragement-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.9rem;
+  align-items: center;
+  padding: 0.9rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(47, 111, 79, 0.12), rgba(184, 136, 69, 0.12));
+  border: 1px solid rgba(47, 111, 79, 0.12);
+}
+
+.tone-warm {
+  background: linear-gradient(135deg, rgba(47, 111, 79, 0.12), rgba(184, 136, 69, 0.12));
+}
+
+.tone-celebration {
+  background: linear-gradient(135deg, rgba(47, 111, 79, 0.18), rgba(232, 181, 86, 0.24));
+}
+
+.tone-alert {
+  background: linear-gradient(135deg, rgba(179, 107, 62, 0.14), rgba(232, 181, 86, 0.2));
+}
+
+.encouragement-banner strong {
+  color: var(--accent-strong);
+}
+
+.encouragement-banner span {
+  color: var(--ink-soft);
+}
+
+.quickplay-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.challenge-progress {
+  width: 100%;
+  height: 0.9rem;
+  background: rgba(47, 111, 79, 0.1);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 0.9rem;
+}
+
+.challenge-progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--accent), #d7a144);
+}
+
+.challenge-meta {
+  margin-top: 0.65rem;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.badge-grid {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.8rem;
+}
+
+.badge-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--line);
+}
+
+.badge-card-soft {
+  background: rgba(47, 111, 79, 0.06);
+}
+
+.next-badges {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.pill-row {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.ghost-pill {
+  background: rgba(47, 111, 79, 0.08);
+  color: var(--accent-strong);
+}
+
+.support-text {
+  text-align: center;
+  color: var(--accent-strong);
+  font-weight: 600;
+  margin-bottom: 0;
 }
 
 .summary-row,
@@ -393,6 +561,7 @@ select {
 .board {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, minmax(0, 1fr));
   width: 100%;
   aspect-ratio: 1;
   border-radius: 24px;
@@ -405,10 +574,14 @@ select {
 
 .square {
   position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
   border: 0;
   padding: 0;
   display: grid;
   place-items: center;
+  min-width: 0;
+  min-height: 0;
 }
 
 .square-light {
@@ -497,7 +670,8 @@ select {
 
   .card-actions,
   .game-header,
-  .summary-row {
+  .summary-row,
+  .encouragement-banner {
     align-items: start;
     flex-direction: column;
   }

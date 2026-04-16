@@ -84,3 +84,31 @@ export function getStatusText(fen: string): string {
 
   return `${chess.turn() === "w" ? "Hvit" : "Sort"} i trekk`;
 }
+
+export function getFriendlyGameMessage(fen: string, moveCount: number): string {
+  const chess = new Chess(fen);
+
+  if (chess.isCheckmate()) {
+    return chess.turn() === "w"
+      ? "Sterk avslutning. Sort satte matt og fullførte partiet."
+      : "Sterk avslutning. Hvit satte matt og fullførte partiet.";
+  }
+
+  if (chess.isDraw()) {
+    return "Partiet endte uavgjort. Bra kjempet begge to.";
+  }
+
+  if (moveCount === 0) {
+    return "Alt er klart. Bare start, så er partiet i gang.";
+  }
+
+  if (moveCount < 6) {
+    return "Fin start. Nå begynner stillingen å ta form.";
+  }
+
+  if (chess.inCheck()) {
+    return "Kongen er truet. Nå gjelder det å finne et rolig og smart trekk.";
+  }
+
+  return "Partiet lever fortsatt. Fortsett å passe på kongen og de løse brikkene.";
+}

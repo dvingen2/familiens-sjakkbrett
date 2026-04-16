@@ -2,10 +2,10 @@ import { Chess } from "chess.js";
 import type { GameRecord, Profile, SessionState } from "../types";
 
 const sampleProfiles: Profile[] = [
-  { id: "u1", displayName: "David", email: "david@familien.no" },
-  { id: "u2", displayName: "Mamma", email: "mamma@familien.no" },
-  { id: "u3", displayName: "Pappa", email: "pappa@familien.no" },
-  { id: "u4", displayName: "Emma", email: "emma@familien.no" },
+  { id: "u1", displayName: "David", email: "david@familien.no", pin: "1111" },
+  { id: "u2", displayName: "Mamma", email: "mamma@familien.no", pin: "2222" },
+  { id: "u3", displayName: "Pappa", email: "pappa@familien.no", pin: "3333" },
+  { id: "u4", displayName: "Emma", email: "emma@familien.no", pin: "4444" },
 ];
 
 function buildDemoGame(): GameRecord {

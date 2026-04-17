@@ -240,7 +240,8 @@ select {
 
 .button,
 .login-user,
-.game-row {
+.game-row,
+.opponent-row {
   transition:
     transform 140ms ease,
     box-shadow 140ms ease,
@@ -260,7 +261,8 @@ select {
 
 .button:hover,
 .login-user:hover,
-.game-row:hover {
+.game-row:hover,
+.opponent-row:hover {
   transform: translateY(-1px);
 }
 
@@ -322,6 +324,10 @@ select {
   border: 1px solid var(--line);
   background: white;
   padding: 0.8rem 0.9rem;
+}
+
+.field-search {
+  margin: 1rem 0 0.25rem;
 }
 
 .info-text {
@@ -387,6 +393,51 @@ select {
   cursor: pointer;
 }
 
+.opponent-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  text-align: left;
+  padding: 1rem 1.1rem;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: white;
+  cursor: pointer;
+}
+
+.opponent-row:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.opponent-row-main {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.opponent-row-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.opponent-row-copy span,
+.opponent-row-meta span {
+  color: var(--ink-soft);
+}
+
+.opponent-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: flex-end;
+  text-align: right;
+}
+
 .login-user.is-active {
   background: var(--accent-soft);
   border-color: rgba(47, 111, 79, 0.3);
@@ -432,6 +483,13 @@ select {
   margin-top: 1rem;
 }
 
+.board-analysis-block {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
 .challenge-progress {
   width: 100%;
   height: 0.9rem;
@@ -471,6 +529,68 @@ select {
 
 .badge-card-soft {
   background: rgba(47, 111, 79, 0.06);
+}
+
+.evaluation-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.evaluation-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.evaluation-header span {
+  color: var(--ink-soft);
+  font-size: 0.94rem;
+}
+
+.evaluation-bar {
+  display: flex;
+  width: 100%;
+  height: 1rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.evaluation-bar-white {
+  background: linear-gradient(135deg, #fffdf8, #e8dcc6);
+}
+
+.evaluation-bar-black {
+  background: linear-gradient(135deg, #5b4433, #2f251d);
+}
+
+.evaluation-scale {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.evaluation-scale div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.evaluation-scale-right {
+  text-align: right;
+  align-items: flex-end;
+}
+
+.evaluation-scale strong {
+  font-size: 1.05rem;
+}
+
+.evaluation-scale span {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
 }
 
 .next-badges {
@@ -520,6 +640,76 @@ select {
 .help-text,
 .card p,
 .info-card li {
+  color: var(--ink-soft);
+}
+
+.game-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+
+.turn-indicator-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+}
+
+.turn-indicator {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.22rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.turn-side {
+  min-width: 6.5rem;
+  padding: 0.5rem 0.95rem 0.45rem;
+  border-radius: 999px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.08rem;
+  color: var(--ink-soft);
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.turn-side strong {
+  font-size: 0.96rem;
+  line-height: 1.1;
+}
+
+.turn-side small {
+  display: block;
+  max-width: 10ch;
+  font-size: 0.73rem;
+  line-height: 1.05;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.turn-side.is-active {
+  color: var(--accent-strong);
+  background: linear-gradient(135deg, rgba(244, 230, 200, 0.95), rgba(255, 249, 238, 0.98));
+  box-shadow: 0 10px 22px rgba(65, 45, 26, 0.08);
+}
+
+.turn-side-black.is-active {
+  background: linear-gradient(135deg, rgba(180, 136, 99, 0.94), rgba(132, 97, 70, 0.98));
+  color: #fff8ef;
+}
+
+.turn-indicator-status {
+  font-size: 0.95rem;
   color: var(--ink-soft);
 }
 
@@ -610,15 +800,26 @@ select {
   z-index: 1;
   width: 100%;
   height: 100%;
+  display: grid;
+  place-items: center;
   border: 0;
   background: transparent;
-  font-size: clamp(1.7rem, 5vw, 3rem);
+  padding: 0;
+  margin: 0;
   cursor: grab;
   user-select: none;
 }
 
 .piece:active {
   cursor: grabbing;
+}
+
+.piece-image {
+  width: 66.666%;
+  height: 66.666%;
+  object-fit: contain;
+  pointer-events: none;
+  display: block;
 }
 
 .coord-file,
@@ -644,8 +845,15 @@ select {
   z-index: 999;
   transform: translate(-50%, -50%);
   pointer-events: none;
-  font-size: clamp(2rem, 6vw, 3.2rem);
-  text-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
+  width: clamp(2.6rem, 9vw, 4.2rem);
+  height: clamp(2.6rem, 9vw, 4.2rem);
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.25));
+}
+
+.drag-ghost-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .move-list li {
@@ -671,9 +879,16 @@ select {
   .card-actions,
   .game-header,
   .summary-row,
-  .encouragement-banner {
+  .encouragement-banner,
+  .opponent-row {
     align-items: start;
     flex-direction: column;
+  }
+
+  .game-status,
+  .turn-indicator-wrap,
+  .opponent-row-meta {
+    align-items: start;
   }
 }
 

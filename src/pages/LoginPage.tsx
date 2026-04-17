@@ -1,23 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useAppContext } from "../context/AppContext";
 import { ProfileAvatar } from "../components/ProfileAvatar";
 
 export function LoginPage() {
   const {
-    isSupabaseMode,
     isLoading,
     profile,
     profiles,
     refreshProfiles,
-    registerFamilyProfile,
-    signInFamilyProfile,
-    signInWithPassword,
-    signUpWithPassword,
+    registerWithUsernamePin,
+    signInWithUsernamePin,
   } = useAppContext();
-  const [mode, setMode] = useState<"family-sign-in" | "family-sign-up" | "cloud-sign-in" | "cloud-sign-up">("family-sign-in");
-  const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,32 +21,28 @@ export function LoginPage() {
     void refreshProfiles();
   }, []);
 
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSubmitting(true);
     setMessage(null);
 
+    const normalizedUsername = username.trim().toLowerCase();
     const result =
-      mode === "family-sign-in"
-        ? await signInFamilyProfile(displayName, pin)
-        : mode === "family-sign-up"
-          ? await registerFamilyProfile(displayName, pin)
-          : mode === "cloud-sign-in"
-            ? await signInWithPassword(email, password)
-            : await signUpWithPassword(email, password, displayName);
+      mode === "sign-in"
+        ? await signInWithUsernamePin(normalizedUsername, pin)
+        : await registerWithUsernamePin(normalizedUsername, pin);
 
     setIsSubmitting(false);
+
     if (result.error) {
       setMessage(result.error);
       return;
     }
 
     setMessage(
-      mode === "family-sign-up"
-        ? "Familieprofil opprettet og låst opp på denne enheten."
-        : mode === "cloud-sign-up"
-          ? "Skykonto opprettet. Hvis e-postbekreftelse er slått på i Supabase, må brukeren bekrefte e-posten før innlogging."
-          : "Innlogging fullført.",
+      mode === "sign-in"
+        ? "Innlogging fullført."
+        : "Brukeren er opprettet og klar til bruk.",
     );
   }
 
@@ -60,133 +51,74 @@ export function LoginPage() {
       <section className="card">
         <h1>Enkel innlogging</h1>
         <p>
-          Familieprofil med PIN er den raske standardflyten for deg og barna. Sky-innlogging er
-          valgfri og trengs bare når dere vil synkronisere eller spille mellom enheter.
+          Skriv inn brukernavn og en 6-sifret kode. Det er hele konto-oppsettet.
+          Spillhistorikk, pågående partier og profiler lagres i skyen uten e-post eller passord.
         </p>
 
         <div className="auth-toggle">
           <button
             type="button"
-            className={`button ${mode === "family-sign-in" ? "button-primary" : "button-secondary"}`}
-            onClick={() => setMode("family-sign-in")}
+            className={`button ${mode === "sign-in" ? "button-primary" : "button-secondary"}`}
+            onClick={() => setMode("sign-in")}
           >
-            Lås opp profil
+            Logg inn
           </button>
           <button
             type="button"
-            className={`button ${mode === "family-sign-up" ? "button-primary" : "button-secondary"}`}
-            onClick={() => setMode("family-sign-up")}
+            className={`button ${mode === "sign-up" ? "button-primary" : "button-secondary"}`}
+            onClick={() => setMode("sign-up")}
           >
-            Ny familieprofil
+            Opprett bruker
           </button>
-          {isSupabaseMode ? (
-            <button
-              type="button"
-              className={`button ${mode === "cloud-sign-in" || mode === "cloud-sign-up" ? "button-primary" : "button-secondary"}`}
-              onClick={() => setMode("cloud-sign-in")}
-            >
-              Sky-innlogging
-            </button>
-          ) : null}
         </div>
 
-        {mode === "cloud-sign-in" || mode === "cloud-sign-up" ? (
-          <div className="card tone-soft">
-            <h2>Skykonto</h2>
-            <p>
-              Bruk dette bare når du vil lagre eller dele spill mellom enheter. For rask spilling
-              hjemme holder det med familieprofil og PIN.
-            </p>
-            <div className="auth-toggle compact">
-              <button
-                type="button"
-                className={`button ${mode === "cloud-sign-in" ? "button-primary" : "button-secondary"}`}
-                onClick={() => setMode("cloud-sign-in")}
-              >
-                Logg inn
-              </button>
-              <button
-                type="button"
-                className={`button ${mode === "cloud-sign-up" ? "button-primary" : "button-secondary"}`}
-                onClick={() => setMode("cloud-sign-up")}
-              >
-                Registrer
-              </button>
-            </div>
-          </div>
-        ) : null}
-
         <form className="auth-form" onSubmit={onSubmit}>
-          {mode === "family-sign-in" || mode === "family-sign-up" || mode === "cloud-sign-up" ? (
-            <label className="field">
-              <span>Brukernavn</span>
-              <input
-                value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
-                placeholder="For eksempel Emma"
-                required
-              />
-            </label>
-          ) : null}
+          <label className="field">
+            <span>Brukernavn</span>
+            <input
+              value={username}
+              onChange={(event) => {
+                const nextValue = event.target.value
+                  .toLowerCase()
+                  .replace(/[^a-z0-9._-]/g, "")
+                  .slice(0, 24);
+                setUsername(nextValue);
+              }}
+              placeholder="for eksempel emma"
+              autoCapitalize="none"
+              autoCorrect="off"
+              required
+            />
+          </label>
 
-          {mode === "family-sign-in" || mode === "family-sign-up" ? (
-            <label className="field">
-              <span>PIN-kode</span>
-              <input
-                inputMode="numeric"
-                pattern="[0-9]{4,6}"
-                value={pin}
-                onChange={(event) => {
-                  const nextValue = event.target.value.replace(/\D/g, "").slice(0, 6);
-                  setPin(nextValue);
-                }}
-                placeholder="4 til 6 sifre"
-                minLength={4}
-                maxLength={6}
-                required
-              />
-            </label>
-          ) : null}
-
-          {mode === "cloud-sign-in" || mode === "cloud-sign-up" ? (
-            <>
-              <label className="field">
-                <span>E-post</span>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="navn@eksempel.no"
-                  required
-                />
-              </label>
-
-              <label className="field">
-                <span>Passord</span>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Minst 6 tegn"
-                  required
-                />
-              </label>
-            </>
-          ) : null}
+          <label className="field">
+            <span>6-sifret kode</span>
+            <input
+              inputMode="numeric"
+              pattern="[0-9]{6}"
+              value={pin}
+              onChange={(event) => {
+                const nextValue = event.target.value.replace(/\D/g, "").slice(0, 6);
+                setPin(nextValue);
+              }}
+              placeholder="123456"
+              minLength={6}
+              maxLength={6}
+              required
+            />
+          </label>
 
           <button type="submit" className="button button-primary" disabled={isSubmitting || isLoading}>
-            {isSubmitting
-              ? "Jobber..."
-              : mode === "family-sign-up"
-                ? "Opprett familieprofil"
-                : mode === "cloud-sign-up"
-                  ? "Opprett skykonto"
-                  : "Logg inn"}
+            {isSubmitting ? "Jobber..." : mode === "sign-in" ? "Logg inn" : "Opprett bruker"}
           </button>
         </form>
 
         {message ? <p className="info-text">{message}</p> : null}
-        {profile ? <p className="info-text">Aktiv profil: {profile.displayName}</p> : null}
+        {profile ? (
+          <p className="info-text">
+            Aktiv profil: {profile.displayName} (@{profile.username})
+          </p>
+        ) : null}
 
         <div className="login-list">
           {profiles.map((item) => (
@@ -195,28 +127,31 @@ export function LoginPage() {
               type="button"
               className={`login-user ${profile?.id === item.id ? "is-active" : ""}`}
               onClick={() => {
-                setDisplayName(item.displayName);
-                setMode("family-sign-in");
+                setUsername(item.username);
+                setMode("sign-in");
               }}
             >
               <span className="login-user-main">
                 <ProfileAvatar profile={item} />
                 <span className="login-user-copy">
                   <strong>{item.displayName}</strong>
-                  <span>{profile?.id === item.id ? "Aktiv på denne enheten" : "Trykk for å fylle inn"}</span>
+                  <span>@{item.username}</span>
                 </span>
               </span>
-              <span className="login-user-meta">{item.pin ? "PIN-profil" : "Profil"}</span>
+              <span className="login-user-meta">
+                {profile?.id === item.id ? "Innlogget" : "Trykk for å fylle inn"}
+              </span>
             </button>
           ))}
         </div>
       </section>
 
       <section className="card">
-        <h2>Hva lagres hvor?</h2>
+        <h2>Lav terskel, ekte konto</h2>
         <p>
-          Lokalt spill kan starte uten innlogging og lagres i nettleseren. Skykonto er valgfri og
-          brukes når dere ønsker lagring og spilling på tvers av enheter.
+          Dette er nå hovedflyten i appen: ett brukernavn, én kode, og resten skjer i bakgrunnen.
+          Hvis dere bare vil spille lokalt på samme enhet, kan dere fortsatt starte rett fra
+          forsiden uten innlogging.
         </p>
       </section>
     </div>

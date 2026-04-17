@@ -7,38 +7,26 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
-import type { Session, User } from "@supabase/supabase-js";
 import {
-  ensureProfile,
   getAuthState,
   isUsingSupabase,
   listProfiles,
-  registerFamily,
-  signInFamily,
-  signIn,
+  registerWithUsernamePin,
+  signInWithUsernamePin,
   signOut,
-  signUp,
   subscribeToAuth,
 } from "../lib/appClient";
-import { getProfiles as getLocalProfiles } from "../lib/storage";
-import type { Profile } from "../types";
+import type { AppSession, Profile } from "../types";
 
 interface AppContextValue {
   isLoading: boolean;
   isSupabaseMode: boolean;
-  session: Session | null;
-  user: User | null;
+  session: AppSession | null;
   profile: Profile | null;
   profiles: Profile[];
   refreshProfiles: () => Promise<void>;
-  signInFamilyProfile: (displayName: string, pin: string) => Promise<{ error?: string }>;
-  registerFamilyProfile: (displayName: string, pin: string) => Promise<{ error?: string }>;
-  signInWithPassword: (email: string, password: string) => Promise<{ error?: string }>;
-  signUpWithPassword: (
-    email: string,
-    password: string,
-    displayName: string,
-  ) => Promise<{ error?: string }>;
+  signInWithUsernamePin: (username: string, pin: string) => Promise<{ error?: string }>;
+  registerWithUsernamePin: (username: string, pin: string) => Promise<{ error?: string }>;
   signOutCurrentUser: () => Promise<{ error?: string }>;
 }
 
@@ -46,8 +34,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: PropsWithChildren) {
   const [isLoading, setIsLoading] = useState(true);
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<AppSession | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
 
@@ -58,28 +45,10 @@ export function AppProvider({ children }: PropsWithChildren) {
     });
   }
 
-  async function syncUser(nextSession: Session | null, nextUser: User | null) {
-    setSession(nextSession);
-    setUser(nextUser);
-
-    if (!nextUser) {
-      setProfile(null);
-      await refreshProfiles();
-      setIsLoading(false);
-      return;
-    }
-
-    if (!nextSession) {
-      const localProfile =
-        getLocalProfiles().find((item) => item.id === nextUser.id) ?? null;
-      setProfile(localProfile);
-      await refreshProfiles();
-      setIsLoading(false);
-      return;
-    }
-
-    const ensuredProfile = await ensureProfile(nextUser);
-    setProfile(ensuredProfile);
+  async function syncAuth() {
+    const auth = await getAuthState();
+    setSession(auth.session);
+    setProfile(auth.profile);
     await refreshProfiles();
     setIsLoading(false);
   }
@@ -88,13 +57,19 @@ export function AppProvider({ children }: PropsWithChildren) {
     let mounted = true;
 
     void (async () => {
-      const auth = await getAuthState();
-      if (!mounted) return;
-      await syncUser(auth.session, auth.user);
+      await syncAuth();
+      if (!mounted) {
+        return;
+      }
     })();
 
-    const unsubscribe = subscribeToAuth((nextSession, nextUser) => {
-      void syncUser(nextSession, nextUser);
+    const unsubscribe = subscribeToAuth((nextAuth) => {
+      startTransition(() => {
+        setSession(nextAuth.session);
+        setProfile(nextAuth.profile);
+      });
+      void refreshProfiles();
+      setIsLoading(false);
     });
 
     return () => {
@@ -108,18 +83,14 @@ export function AppProvider({ children }: PropsWithChildren) {
       isLoading,
       isSupabaseMode: isUsingSupabase(),
       session,
-      user,
       profile,
       profiles,
       refreshProfiles,
-      signInFamilyProfile: (displayName, pin) => signInFamily(displayName, pin),
-      registerFamilyProfile: (displayName, pin) => registerFamily(displayName, pin),
-      signInWithPassword: (email, password) => signIn({ email, password }),
-      signUpWithPassword: (email, password, displayName) =>
-        signUp({ email, password, displayName }),
+      signInWithUsernamePin,
+      registerWithUsernamePin,
       signOutCurrentUser: () => signOut(),
     }),
-    [isLoading, profile, profiles, session, user],
+    [isLoading, profile, profiles, session],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -6,6 +6,7 @@ const PROFILES_KEY = "familiesjakk.profiles";
 const GAMES_KEY = "familiesjakk.games";
 const SESSION_KEY = "familiesjakk.session";
 const QUICK_GAME_KEY = "familiesjakk.quick-game-id";
+const APP_SESSION_TOKEN_KEY = "familiesjakk.app-session-token";
 
 function readJson<T>(key: string, fallback: T): T {
   const raw = localStorage.getItem(key);
@@ -38,7 +39,25 @@ export function bootstrapLocalData() {
 
 export function getProfiles(): Profile[] {
   bootstrapLocalData();
-  return readJson(PROFILES_KEY, getDefaultProfiles());
+  const profiles = readJson(PROFILES_KEY, getDefaultProfiles());
+  const normalizedProfiles = profiles.map((profile) => {
+    const username =
+      profile.username ||
+      profile.displayName
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]/g, "")
+        .slice(0, 24);
+
+    return {
+      ...profile,
+      username,
+      avatarSeed: profile.avatarSeed ?? username ?? profile.id,
+    };
+  });
+
+  writeJson(PROFILES_KEY, normalizedProfiles);
+  return normalizedProfiles;
 }
 
 export function getGames(): GameRecord[] {
@@ -53,6 +72,19 @@ export function getSession(): SessionState {
 
 export function setCurrentUser(userId: string | null) {
   writeJson(SESSION_KEY, { currentUserId: userId });
+}
+
+export function getStoredAppSessionToken() {
+  return localStorage.getItem(APP_SESSION_TOKEN_KEY);
+}
+
+export function setStoredAppSessionToken(token: string | null) {
+  if (!token) {
+    localStorage.removeItem(APP_SESSION_TOKEN_KEY);
+    return;
+  }
+
+  localStorage.setItem(APP_SESSION_TOKEN_KEY, token);
 }
 
 export function createGame(params: {
@@ -85,8 +117,16 @@ export function createGame(params: {
 }
 
 export function updateGame(nextGame: GameRecord) {
-  const games = getGames().map((game) => (game.id === nextGame.id ? nextGame : game));
-  writeJson(GAMES_KEY, games);
+  const games = getGames();
+  const existingIndex = games.findIndex((game) => game.id === nextGame.id);
+
+  if (existingIndex >= 0) {
+    const nextGames = games.map((game) => (game.id === nextGame.id ? nextGame : game));
+    writeJson(GAMES_KEY, nextGames);
+    return;
+  }
+
+  writeJson(GAMES_KEY, [nextGame, ...games]);
 }
 
 export function getGameById(gameId: string): GameRecord | null {
@@ -124,11 +164,20 @@ export function resetQuickLocalGame(): GameRecord {
   return game;
 }
 
-export function createFamilyProfile(displayName: string, pin: string): Profile {
-  const normalizedName = displayName.trim();
+function normalizeUsername(username: string) {
+  return username
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "")
+    .slice(0, 24);
+}
+
+export function createFamilyProfile(username: string, pin: string): Profile {
+  const normalizedUsername = normalizeUsername(username);
+  const displayName = normalizedUsername || "Spiller";
   const profiles = getProfiles();
   const existing = profiles.find(
-    (profile) => profile.displayName.toLowerCase() === normalizedName.toLowerCase(),
+    (profile) => profile.username.toLowerCase() === normalizedUsername,
   );
 
   if (existing) {
@@ -142,27 +191,29 @@ export function createFamilyProfile(displayName: string, pin: string): Profile {
 
   const profile: Profile = {
     id: crypto.randomUUID(),
-    displayName: normalizedName,
-    email: `${normalizedName.toLowerCase().replace(/\s+/g, ".")}@familien.local`,
+    displayName,
+    username: normalizedUsername,
+    email: `${normalizedUsername}@familien.local`,
     pin,
+    avatarSeed: normalizedUsername,
   };
 
   writeJson(PROFILES_KEY, [...profiles, profile]);
   return profile;
 }
 
-export function signInWithFamilyPin(displayName: string, pin: string) {
-  const normalizedName = displayName.trim().toLowerCase();
+export function signInWithFamilyPin(username: string, pin: string): { profile: Profile } | { error: string } {
+  const normalizedUsername = normalizeUsername(username);
   const profile = getProfiles().find(
-    (item) => item.displayName.trim().toLowerCase() === normalizedName,
+    (item) => item.username.trim().toLowerCase() === normalizedUsername,
   );
 
   if (!profile) {
-    return { error: "Fant ingen familieprofil med det navnet." };
+    return { error: "Fant ingen profil med det brukernavnet." };
   }
 
   if (!profile.pin || profile.pin !== pin) {
-    return { error: "PIN-koden stemmer ikke." };
+    return { error: "Koden stemmer ikke." };
   }
 
   setCurrentUser(profile.id);

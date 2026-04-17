@@ -3,7 +3,9 @@ import type { GameRecord, GameStatus, MoveRecord, Profile } from "../types";
 interface ProfileRow {
   id: string;
   display_name: string;
+  username?: string | null;
   email: string | null;
+  avatar_seed?: string | null;
 }
 
 interface MoveRow {
@@ -40,7 +42,9 @@ export function profileFromRow(row: ProfileRow): Profile {
   return {
     id: row.id,
     displayName: row.display_name,
+    username: row.username ?? row.display_name.toLowerCase(),
     email: row.email ?? "",
+    avatarSeed: row.avatar_seed ?? row.username ?? row.id,
   };
 }
 

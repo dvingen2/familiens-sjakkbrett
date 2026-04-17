@@ -1,23 +1,30 @@
 import { Chess } from "chess.js";
-import type { RealtimeChannel, Session, User } from "@supabase/supabase-js";
-import { getDefaultGames, getDefaultProfiles, getDefaultSession } from "./mockData";
+import { getDefaultProfiles } from "./mockData";
 import {
   bootstrapLocalData,
   createFamilyProfile,
   createGame as createLocalGame,
+  getGameById as getLocalGameById,
   getGames,
   getProfiles,
   getSession,
-  signInWithFamilyPin,
+  getStoredAppSessionToken,
   setCurrentUser,
+  setStoredAppSessionToken,
+  signInWithFamilyPin,
   updateGame,
 } from "./storage";
-import { supabase } from "./supabase";
+import { isSupabaseConfigured, supabase } from "./supabase";
 import { gameFromRow, profileFromRow, type GameRow, type ProfileRow } from "./gameMappers";
-import type { GameMode, GameRecord, MoveRecord, Profile } from "../types";
+import type { AppSession, GameMode, GameRecord, MoveRecord, Profile } from "../types";
 
 interface AuthResult {
   error?: string;
+}
+
+interface AuthState {
+  session: AppSession | null;
+  profile: Profile | null;
 }
 
 interface CreateGameInput {
@@ -32,223 +39,224 @@ interface MoveInput {
   pgn: string;
 }
 
+interface AppSessionRow {
+  session_token: string;
+  user_id: string;
+  username: string;
+  display_name: string;
+  avatar_seed: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
 const LOCAL_AUTH_EVENT = "familiesjakk:auth-changed";
 
 function emitLocalAuthChanged() {
   window.dispatchEvent(new CustomEvent(LOCAL_AUTH_EVENT));
 }
 
-async function getCloudSession() {
-  if (!supabase) {
-    return null;
-  }
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  return session;
+function sessionFromRow(row: AppSessionRow): AppSession {
+  return {
+    token: row.session_token,
+    userId: row.user_id,
+    username: row.username,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  };
 }
 
-function ensureLocalProfileForUser(user: User) {
-  const profiles = getProfiles();
-  if (profiles.some((profile) => profile.id === user.id)) {
-    setCurrentUser(user.id);
-    emitLocalAuthChanged();
-    return;
-  }
-
-  const nextProfiles = [
-    ...profiles,
-    {
-      id: user.id,
-      displayName:
-        user.user_metadata?.display_name ||
-        user.email?.split("@")[0] ||
-        "Ny bruker",
-      email: user.email ?? "",
-    },
-  ];
-
-  localStorage.setItem("familiesjakk.profiles", JSON.stringify(nextProfiles));
-  setCurrentUser(user.id);
-  emitLocalAuthChanged();
+function profileFromSessionRow(row: AppSessionRow): Profile {
+  return {
+    id: row.user_id,
+    username: row.username,
+    displayName: row.display_name,
+    avatarSeed: row.avatar_seed ?? row.username,
+  };
 }
 
-function localSessionToAuthState(): { session: Session | null; user: User | null } {
+function localAuthState(): AuthState {
   bootstrapLocalData();
   const sessionState = getSession();
-  const currentUser = getProfiles().find((profile) => profile.id === sessionState.currentUserId);
-  if (!currentUser) {
-    return { session: null, user: null };
+  const currentProfile =
+    getProfiles().find((profile) => profile.id === sessionState.currentUserId) ?? null;
+
+  if (!currentProfile) {
+    return { session: null, profile: null };
   }
 
   return {
-    session: null,
-    user: {
-      id: currentUser.id,
-      app_metadata: {},
-      user_metadata: { display_name: currentUser.displayName },
-      aud: "authenticated",
-      created_at: new Date().toISOString(),
-      email: currentUser.email,
-    } as User,
+    session: {
+      token: "local-session",
+      userId: currentProfile.id,
+      username: currentProfile.username,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 365 * 86400000).toISOString(),
+    },
+    profile: currentProfile,
   };
 }
 
-export async function getAuthState(): Promise<{ session: Session | null; user: User | null }> {
+async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
   if (!supabase) {
-    return localSessionToAuthState();
+    throw new Error("Supabase er ikke konfigurert.");
   }
 
-  const session = await getCloudSession();
-
-  if (!session) {
-    return localSessionToAuthState();
+  const { data, error } = await supabase.rpc(fn, args);
+  if (error) {
+    throw new Error(error.message);
   }
 
-  return { session, user: session.user ?? null };
+  return data as T;
 }
 
-export function subscribeToAuth(callback: (session: Session | null, user: User | null) => void) {
+function getCloudToken() {
+  return getStoredAppSessionToken();
+}
+
+async function getCloudAuthState(): Promise<AuthState> {
   if (!supabase) {
-    const local = localSessionToAuthState();
-    callback(local.session, local.user);
-    const handler = () => {
-      const nextLocal = localSessionToAuthState();
-      callback(nextLocal.session, nextLocal.user);
-    };
-    window.addEventListener(LOCAL_AUTH_EVENT, handler);
-    return () => {
-      window.removeEventListener(LOCAL_AUTH_EVENT, handler);
-    };
+    return localAuthState();
   }
 
-  const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-    if (!session) {
-      const local = localSessionToAuthState();
-      callback(local.session, local.user);
-      return;
+  const token = getCloudToken();
+  if (!token) {
+    return { session: null, profile: null };
+  }
+
+  try {
+    const row = await rpc<AppSessionRow | null>("app_get_session", { p_token: token });
+    if (!row) {
+      setStoredAppSessionToken(null);
+      return { session: null, profile: null };
     }
-    callback(session, session.user ?? null);
-  });
+
+    return {
+      session: sessionFromRow(row),
+      profile: profileFromSessionRow(row),
+    };
+  } catch {
+    setStoredAppSessionToken(null);
+    return { session: null, profile: null };
+  }
+}
+
+function persistLocalProfile(profile: Profile) {
+  const profiles = getProfiles();
+  const existingIndex = profiles.findIndex((item) => item.id === profile.id);
+  const nextProfiles =
+    existingIndex >= 0
+      ? profiles.map((item) => (item.id === profile.id ? { ...item, ...profile } : item))
+      : [...profiles, profile];
+
+  localStorage.setItem("familiesjakk.profiles", JSON.stringify(nextProfiles));
+}
+
+export async function getAuthState(): Promise<AuthState> {
+  if (!supabase) {
+    return localAuthState();
+  }
+
+  return getCloudAuthState();
+}
+
+export function subscribeToAuth(callback: (state: AuthState) => void) {
+  const handler = () => {
+    void (async () => {
+      callback(await getAuthState());
+    })();
+  };
+
+  window.addEventListener(LOCAL_AUTH_EVENT, handler);
+  void handler();
 
   return () => {
-    data.subscription.unsubscribe();
+    window.removeEventListener(LOCAL_AUTH_EVENT, handler);
   };
 }
 
-export async function signUp(params: {
-  email: string;
-  password: string;
-  displayName: string;
-}): Promise<AuthResult> {
+export function isUsingSupabase() {
+  return isSupabaseConfigured();
+}
+
+export async function registerWithUsernamePin(
+  username: string,
+  pin: string,
+): Promise<AuthResult> {
   if (!supabase) {
-    const fakeUser: User = {
-      id: crypto.randomUUID(),
-      app_metadata: {},
-      user_metadata: { display_name: params.displayName },
-      aud: "authenticated",
-      created_at: new Date().toISOString(),
-      email: params.email,
-    } as User;
-    ensureLocalProfileForUser(fakeUser);
+    createFamilyProfile(username, pin);
+    const result = signInWithFamilyPin(username, pin);
+    if ("error" in result) {
+      return { error: result.error };
+    }
+
+    emitLocalAuthChanged();
     return {};
   }
 
-  const { error } = await supabase.auth.signUp({
-    email: params.email,
-    password: params.password,
-    options: {
-      data: {
-        display_name: params.displayName,
-      },
-      emailRedirectTo: window.location.href,
-    },
-  });
-
-  return error ? { error: error.message } : {};
+  try {
+    const row = await rpc<AppSessionRow>("app_register_user", {
+      p_username: username,
+      p_pin: pin,
+    });
+    const session = sessionFromRow(row);
+    const profile = profileFromSessionRow(row);
+    setStoredAppSessionToken(session.token);
+    persistLocalProfile(profile);
+    setCurrentUser(profile.id);
+    emitLocalAuthChanged();
+    return {};
+  } catch (cause) {
+    return { error: cause instanceof Error ? cause.message : "Kunne ikke opprette brukeren." };
+  }
 }
 
-export async function signIn(params: { email: string; password: string }): Promise<AuthResult> {
+export async function signInWithUsernamePin(
+  username: string,
+  pin: string,
+): Promise<AuthResult> {
   if (!supabase) {
-    return { error: "Bruk familieprofil + PIN for lokal innlogging." };
+    const result = signInWithFamilyPin(username, pin);
+    if ("error" in result) {
+      return { error: result.error };
+    }
+
+    emitLocalAuthChanged();
+    return {};
   }
 
-  const { error } = await supabase.auth.signInWithPassword(params);
-  return error ? { error: error.message } : {};
+  try {
+    const row = await rpc<AppSessionRow>("app_login_user", {
+      p_username: username,
+      p_pin: pin,
+    });
+    const session = sessionFromRow(row);
+    const profile = profileFromSessionRow(row);
+    setStoredAppSessionToken(session.token);
+    persistLocalProfile(profile);
+    setCurrentUser(profile.id);
+    emitLocalAuthChanged();
+    return {};
+  } catch (cause) {
+    return { error: cause instanceof Error ? cause.message : "Feil brukernavn eller kode." };
+  }
 }
 
 export async function signOut(): Promise<AuthResult> {
+  const token = getCloudToken();
+  setStoredAppSessionToken(null);
   setCurrentUser(null);
   emitLocalAuthChanged();
 
-  if (!supabase) {
+  if (!supabase || !token) {
     return {};
   }
 
-  const { error } = await supabase.auth.signOut({ scope: "local" });
-  return error ? { error: error.message } : {};
-}
-
-export async function signInFamily(displayName: string, pin: string): Promise<AuthResult> {
-  const result = signInWithFamilyPin(displayName, pin);
-  if ("error" in result) {
-    return { error: result.error };
+  try {
+    await rpc<boolean>("app_logout_user", { p_token: token });
+    return {};
+  } catch (cause) {
+    return { error: cause instanceof Error ? cause.message : "Kunne ikke logge ut." };
   }
-
-  emitLocalAuthChanged();
-  return {};
-}
-
-export async function registerFamily(displayName: string, pin: string): Promise<AuthResult> {
-  createFamilyProfile(displayName, pin);
-  const result = signInWithFamilyPin(displayName, pin);
-  if ("error" in result) {
-    return { error: result.error };
-  }
-
-  emitLocalAuthChanged();
-  return {};
-}
-
-export async function ensureProfile(user: User): Promise<Profile> {
-  const session = await getCloudSession();
-
-  if (!supabase || !session || session.user.id !== user.id) {
-    ensureLocalProfileForUser(user);
-    return (
-      getProfiles().find((profile) => profile.id === user.id) ?? getDefaultProfiles()[0]
-    );
-  }
-
-  const displayName =
-    user.user_metadata?.display_name ||
-    user.email?.split("@")[0] ||
-    "Spiller";
-
-  const profilePayload = {
-    id: user.id,
-    display_name: displayName,
-    email: user.email ?? "",
-  };
-
-  const { error } = await supabase.from("profiles").upsert(profilePayload);
-  if (error) {
-    throw error;
-  }
-
-  const { data, error: selectError } = await supabase
-    .from("profiles")
-    .select("id, display_name, email")
-    .eq("id", user.id)
-    .single();
-
-  if (selectError) {
-    throw selectError;
-  }
-
-  return profileFromRow(data as ProfileRow);
 }
 
 export async function listProfiles(): Promise<Profile[]> {
@@ -256,233 +264,179 @@ export async function listProfiles(): Promise<Profile[]> {
     return getProfiles();
   }
 
-  const session = await getCloudSession();
-  if (!session) {
+  const token = getCloudToken();
+  if (!token) {
     return getProfiles();
   }
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, display_name, email")
-    .order("display_name");
+  const rows = await rpc<ProfileRow[]>("app_list_profiles", { p_token: token });
+  const cloudProfiles = rows.map(profileFromRow);
 
-  if (error) {
-    throw error;
-  }
-
-  return (data as ProfileRow[]).map(profileFromRow);
+  cloudProfiles.forEach(persistLocalProfile);
+  return cloudProfiles;
 }
 
 export async function listGamesForUser(): Promise<GameRecord[]> {
+  const localGames = getGames();
+
   if (!supabase) {
-    return getGames();
+    return localGames;
   }
 
-  const session = await getCloudSession();
-  if (!session) {
-    return getGames();
+  const token = getCloudToken();
+  if (!token) {
+    return localGames;
   }
 
-  const { data, error } = await supabase
-    .from("games")
-    .select(
-      "id, mode, status, white_user_id, black_user_id, white_name, black_name, current_fen, pgn, result, created_at, updated_at, last_move_at",
-    )
-    .order("updated_at", { ascending: false });
-
-  if (error) {
-    throw error;
-  }
-
-  return (data as GameRow[]).map(gameFromRow);
+  const rows = await rpc<GameRow[]>("app_list_games", { p_token: token });
+  const cloudGames = rows.map(gameFromRow);
+  cloudGames.forEach(updateGame);
+  const seen = new Set(cloudGames.map((game) => game.id));
+  const mergedLocalGames = localGames.filter((game) => !seen.has(game.id));
+  return [...cloudGames, ...mergedLocalGames];
 }
 
 export async function getGameById(gameId: string): Promise<GameRecord | null> {
   if (!supabase) {
-    return getGames().find((item) => item.id === gameId) ?? null;
+    return getLocalGameById(gameId);
   }
 
-  const session = await getCloudSession();
-  if (!session) {
-    return getGames().find((item) => item.id === gameId) ?? null;
+  const token = getCloudToken();
+  if (!token) {
+    return getLocalGameById(gameId);
   }
 
-  const { data, error } = await supabase
-    .from("games")
-    .select(
-      "id, mode, status, white_user_id, black_user_id, white_name, black_name, current_fen, pgn, result, created_at, updated_at, last_move_at, moves(id, move_number, from_square, to_square, san, fen_after, moved_by_user_id, created_at)",
-    )
-    .eq("id", gameId)
-    .single();
+  const row = await rpc<GameRow | null>("app_get_game", {
+    p_token: token,
+    p_game_id: gameId,
+  });
 
-  if (error) {
-    if (error.code === "PGRST116") {
-      return null;
-    }
-    throw error;
+  if (row) {
+    const cloudGame = gameFromRow(row);
+    updateGame(cloudGame);
+    return cloudGame;
   }
 
-  return gameFromRow(data as GameRow);
+  return getLocalGameById(gameId);
 }
 
 export async function createGameForCurrentUser(
-  user: User | null,
+  profile: Profile | null,
   profiles: Profile[],
   input: CreateGameInput,
 ): Promise<GameRecord> {
-  const session = await getCloudSession();
+  const token = getCloudToken();
 
-  if (!supabase || !user || !session || session.user.id !== user.id) {
+  if (!supabase || !token || !profile) {
     const fallbackOpponent =
-      profiles.find((profile) => profile.id !== getSession().currentUserId) ?? getDefaultProfiles()[1];
+      profiles.find((item) => item.id !== getSession().currentUserId) ?? getDefaultProfiles()[1];
 
     return createLocalGame({
       mode: input.mode,
+      // Online convention: the challenger starts as white, the selected opponent as black.
       whiteUserId: input.mode === "online" ? getSession().currentUserId ?? undefined : undefined,
       blackUserId: input.mode === "online" ? fallbackOpponent?.id : undefined,
-      whiteName:
-        input.mode === "online"
-          ? profiles.find((profile) => profile.id === getSession().currentUserId)?.displayName ??
-            "Spiller 1"
-          : "Hvit på denne enheten",
-      blackName:
-        input.mode === "online"
-          ? fallbackOpponent?.displayName ?? "Spiller 2"
-          : "Sort på denne enheten",
+      whiteName: input.mode === "online" ? profile?.displayName ?? "Spiller 1" : "Hvit på denne enheten",
+      blackName: input.mode === "online" ? fallbackOpponent?.displayName ?? "Spiller 2" : "Sort på denne enheten",
     });
   }
 
-  const chess = new Chess();
-  const opponent = profiles.find((profile) => profile.id === input.opponentId) ?? null;
-
-  const payload = {
-    mode: input.mode,
-    status: "active" as const,
-    created_by: user.id,
-    white_user_id: input.mode === "online" ? user.id : null,
-    black_user_id: input.mode === "online" ? opponent?.id ?? null : null,
-    white_name:
-      input.mode === "online"
-        ? profiles.find((profile) => profile.id === user.id)?.displayName ??
-          user.user_metadata?.display_name ??
-          "Spiller 1"
-        : "Hvit på denne enheten",
-    black_name:
-      input.mode === "online"
-        ? opponent?.displayName ?? "Spiller 2"
-        : "Sort på denne enheten",
-    current_fen: chess.fen(),
-    pgn: "",
-  };
-
-  const { data, error } = await supabase
-    .from("games")
-    .insert(payload)
-    .select(
-      "id, mode, status, white_user_id, black_user_id, white_name, black_name, current_fen, pgn, result, created_at, updated_at, last_move_at",
-    )
-    .single();
-
-  if (error) {
-    throw error;
-  }
-
-  return gameFromRow(data as GameRow);
-}
-
-export async function saveMove(input: MoveInput): Promise<GameRecord> {
-  const session = await getCloudSession();
-
-  if (!supabase || !session) {
-    const nextGame: GameRecord = {
-      ...input.game,
-      currentFen: input.fen,
-      pgn: input.pgn,
-      moveHistory: [...input.game.moveHistory, input.move],
-      updatedAt: new Date().toISOString(),
-      lastMoveAt: new Date().toISOString(),
-    };
-    updateGame(nextGame);
-    return nextGame;
-  }
-
-  const { error: moveError } = await supabase.from("moves").insert({
-    game_id: input.game.id,
-    move_number: input.game.moveHistory.length + 1,
-    from_square: input.move.from,
-    to_square: input.move.to,
-    san: input.move.san,
-    fen_after: input.move.fenAfter,
-    moved_by_user_id: input.move.movedByUserId ?? null,
+  const row = await rpc<GameRow>("app_create_game", {
+    p_token: token,
+    p_mode: input.mode,
+    p_opponent_id: input.mode === "online" ? input.opponentId ?? null : null,
   });
 
-  if (moveError) {
-    throw moveError;
-  }
-
-  const nextStatus =
-    (() => {
-      const chess = new Chess(input.fen);
-      if (chess.isGameOver()) {
-        return "finished" as const;
-      }
-      return input.game.status;
-    })();
-
-  const { error: gameError } = await supabase
-    .from("games")
-    .update({
-      current_fen: input.fen,
-      pgn: input.pgn,
-      status: nextStatus,
-      updated_at: new Date().toISOString(),
-      last_move_at: new Date().toISOString(),
-    })
-    .eq("id", input.game.id);
-
-  if (gameError) {
-    throw gameError;
-  }
-
-  const nextGame = await getGameById(input.game.id);
-  if (!nextGame) {
-    throw new Error("Fant ikke oppdatert spill etter lagring.");
-  }
+  const nextGame = gameFromRow(row);
+  updateGame(nextGame);
   return nextGame;
 }
 
-export function subscribeToGame(gameId: string, callback: () => void): (() => void) {
-  if (!supabase) {
-    return () => undefined;
+function deriveGameState(fen: string) {
+  const chess = new Chess(fen);
+
+  if (chess.isCheckmate()) {
+    return {
+      status: "finished" as const,
+      result: chess.turn() === "w" ? "0-1" : "1-0",
+    };
   }
 
-  void getCloudSession().then((session) => {
-    if (!session) {
-      return;
-    }
-  });
+  if (chess.isDraw()) {
+    return {
+      status: "finished" as const,
+      result: "1/2-1/2",
+    };
+  }
 
-  const client = supabase;
-
-  const channel: RealtimeChannel = client
-    .channel(`game-${gameId}`)
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "games", filter: `id=eq.${gameId}` },
-      callback,
-    )
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "moves", filter: `game_id=eq.${gameId}` },
-      callback,
-    )
-    .subscribe();
-
-  return () => {
-    void client.removeChannel(channel);
+  return {
+    status: "active" as const,
+    result: null,
   };
 }
 
-export function isUsingSupabase() {
-  return Boolean(supabase);
+export async function saveMove(input: MoveInput): Promise<GameRecord> {
+  const nextState = deriveGameState(input.fen);
+  const token = getCloudToken();
+  const localExistingGame = getLocalGameById(input.game.id);
+  const nextLocalGame: GameRecord = {
+    ...input.game,
+    currentFen: input.fen,
+    pgn: input.pgn,
+    status: nextState.status,
+    result: nextState.result ?? undefined,
+    moveHistory: [...input.game.moveHistory, input.move],
+    updatedAt: new Date().toISOString(),
+    lastMoveAt: new Date().toISOString(),
+  };
+
+  const shouldPersistLocally =
+    !supabase ||
+    !token ||
+    (input.game.mode === "local-pass-play" && Boolean(localExistingGame));
+
+  if (shouldPersistLocally) {
+    updateGame(nextLocalGame);
+    return nextLocalGame;
+  }
+
+  try {
+    const row = await rpc<GameRow>("app_make_move", {
+      p_token: token,
+      p_game_id: input.game.id,
+      p_from_square: input.move.from,
+      p_to_square: input.move.to,
+      p_san: input.move.san,
+      p_fen_after: input.fen,
+      p_pgn: input.pgn,
+      p_status: nextState.status,
+      p_result: nextState.result,
+      p_moved_by_user_id: input.move.movedByUserId ?? null,
+    });
+
+    const nextGame = gameFromRow(row);
+    updateGame(nextGame);
+    return nextGame;
+  } catch (cause) {
+    if (input.game.mode === "local-pass-play" && localExistingGame) {
+      updateGame(nextLocalGame);
+      return nextLocalGame;
+    }
+
+    throw cause;
+  }
+}
+
+export function subscribeToGame(gameId: string, callback: () => void) {
+  if (!supabase || !getCloudToken()) {
+    return () => {};
+  }
+
+  const intervalId = window.setInterval(() => {
+    void callback();
+  }, 3000);
+
+  return () => {
+    window.clearInterval(intervalId);
+  };
 }

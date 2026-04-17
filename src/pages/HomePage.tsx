@@ -4,17 +4,31 @@ import { useAppContext } from "../context/AppContext";
 import { usePwaContext } from "../context/PwaContext";
 import type { Square } from "chess.js";
 import { ChessBoard } from "../components/ChessBoard";
+import { EvaluationBar } from "../components/EvaluationBar";
+import { TurnIndicator } from "../components/TurnIndicator";
 import { attemptMove, getFriendlyGameMessage, getStatusText, getTurn } from "../lib/chess";
 import { getGames, getOrCreateQuickLocalGame, resetQuickLocalGame, updateGame } from "../lib/storage";
 import { getGamificationSnapshot, getPostGameFeedback } from "../lib/gamification";
+import { usePositionEvaluation } from "../lib/usePositionEvaluation";
 import type { GameRecord } from "../types";
 
 export function HomePage() {
-  const { isSupabaseMode, profile } = useAppContext();
+  const { isSupabaseMode, profile, profiles } = useAppContext();
   const { canInstall, installApp, isInstalled, isOnline } = usePwaContext();
   const [quickGame, setQuickGame] = useState<GameRecord | null>(null);
   const [refreshSeed, setRefreshSeed] = useState(0);
   const [installMessage, setInstallMessage] = useState<string | null>(null);
+  const [lastMoveInsight, setLastMoveInsight] = useState<string | null>(null);
+  const [pendingMoveInsight, setPendingMoveInsight] = useState<{
+    afterFen: string;
+    movedBy: "w" | "b";
+    beforeWhiteChance: number;
+    san: string;
+  } | null>(null);
+  const { evaluation, isAnalyzing, error: evaluationError } = usePositionEvaluation(
+    quickGame?.currentFen ?? null,
+    9,
+  );
 
   useEffect(() => {
     setQuickGame(getOrCreateQuickLocalGame());
@@ -23,6 +37,31 @@ export function HomePage() {
   const allGames = getGames();
   const snapshot = getGamificationSnapshot(allGames, profile);
   const quickFeedback = quickGame ? getPostGameFeedback(quickGame) : null;
+
+  useEffect(() => {
+    if (!evaluation || !pendingMoveInsight) {
+      return;
+    }
+
+    if (evaluation.fen !== pendingMoveInsight.afterFen) {
+      return;
+    }
+
+    const before = pendingMoveInsight.movedBy === "w"
+      ? pendingMoveInsight.beforeWhiteChance
+      : 1 - pendingMoveInsight.beforeWhiteChance;
+    const after = pendingMoveInsight.movedBy === "w"
+      ? evaluation.whiteChance
+      : evaluation.blackChance;
+    const beforePercent = Math.round(before * 100);
+    const afterPercent = Math.round(after * 100);
+    const delta = afterPercent - beforePercent;
+
+    setLastMoveInsight(
+      describeMoveImpact(pendingMoveInsight.san, pendingMoveInsight.movedBy, beforePercent, afterPercent, delta),
+    );
+    setPendingMoveInsight(null);
+  }, [evaluation, pendingMoveInsight]);
 
   function handleMove(from: Square, to: Square) {
     if (!quickGame) {
@@ -43,6 +82,13 @@ export function HomePage() {
       lastMoveAt: new Date().toISOString(),
     };
 
+    setPendingMoveInsight({
+      afterFen: result.fen,
+      movedBy: getTurn(quickGame.currentFen),
+      beforeWhiteChance: evaluation?.whiteChance ?? 0.5,
+      san: result.move.san,
+    });
+
     setQuickGame(nextGame);
     updateGame(nextGame);
     setRefreshSeed((value) => value + 1);
@@ -56,8 +102,9 @@ export function HomePage() {
           <p className="eyebrow">Mobilvennlig familiesjakk</p>
           <h1>Åpne siden og start et nytt lokalt spill med én gang.</h1>
           <p className="lead">
-            Dette lokale spillet starter uten innlogging og lagres bare i nettleseren på denne
-            enheten. Innlogging og online-spill er valgfritt og kan tas i bruk senere.
+            {profile
+              ? "Du er logget inn, så familien kan både spille lokalt med én gang og fortsette med sky-lagrede spill når dere vil."
+              : "Dette lokale spillet starter uten innlogging og lagres bare i nettleseren på denne enheten. Innlogging og online-spill er valgfritt og kan tas i bruk senere."}
           </p>
 
           <div className="hero-actions">
@@ -71,9 +118,16 @@ export function HomePage() {
             <Link className="button button-secondary" to="/mine-spill">
               Se flere spill
             </Link>
-            <Link className="button button-secondary" to="/logg-inn">
-              Familieprofil og sky
-            </Link>
+            {profile && profiles.some((item) => item.id !== profile.id) ? (
+              <Link className="button button-secondary" to="/mine-spill#spillere">
+                Start online-spill
+              </Link>
+            ) : null}
+            {!profile ? (
+              <Link className="button button-secondary" to="/logg-inn">
+                Familieprofil og sky
+              </Link>
+            ) : null}
           </div>
         </div>
 
@@ -82,7 +136,9 @@ export function HomePage() {
           <ul className="plain-list">
             <li>Responsivt touch-brett</li>
             <li>Trykk for å velge, hold inne for markering og dra</li>
-            <li>{profile ? `Aktiv bruker: ${profile.displayName}` : "Ingen aktiv bruker ennå"}</li>
+            <li>
+              {profile ? `Aktiv bruker: @${profile.username}` : "Ingen aktiv bruker ennå"}
+            </li>
             <li>Klar for GitHub Pages med `HashRouter`</li>
             <li>{isSupabaseMode ? "Supabase er konfigurert" : "Lokal demo-modus er aktiv"}</li>
             <li>{isInstalled ? "Appen er lagret på hjemskjerm" : "Kan brukes som hjemskjerm-app"}</li>
@@ -126,7 +182,7 @@ export function HomePage() {
           <h2>Offline-flyt</h2>
           <p>
             Hvis nettet forsvinner, skal appen fortsatt kunne åpnes og lokale partier skal kunne
-            fortsette på samme enhet. Skyfunksjoner kan vente til nettet er tilbake.
+            fortsette på samme enhet. {profile ? "Innloggingen din beholdes, og sky-synk kan vente til nettet er tilbake." : "Skyfunksjoner kan vente til nettet er tilbake."}
           </p>
         </article>
       </section>
@@ -140,12 +196,20 @@ export function HomePage() {
           <div className="game-header">
             <div>
               <h2>Nytt lokalt spill</h2>
-              <p>Pass-and-play på samme enhet, uten innlogging. Perfekt for en rask familierunde.</p>
+              <p>
+                {profile
+                  ? "Pass-and-play på samme enhet. Perfekt for en rask familierunde selv når du allerede er logget inn."
+                  : "Pass-and-play på samme enhet, uten innlogging. Perfekt for en rask familierunde."}
+              </p>
             </div>
 
             <div className="game-status">
-              <span className="pill">{getTurn(quickGame.currentFen) === "w" ? "Hvit i trekk" : "Sort i trekk"}</span>
-              <span>{getStatusText(quickGame.currentFen)}</span>
+              <TurnIndicator
+                turn={getTurn(quickGame.currentFen)}
+                whiteLabel="på denne enheten"
+                blackLabel="på denne enheten"
+                statusText={getStatusText(quickGame.currentFen)}
+              />
             </div>
           </div>
 
@@ -158,14 +222,30 @@ export function HomePage() {
             >
               Start helt på nytt
             </button>
-            <Link className="button button-secondary" to="/logg-inn">
-              Koble til familieprofil
-            </Link>
+            {profile ? (
+              <Link className="button button-secondary" to="/mine-spill">
+                Åpne Mine spill
+              </Link>
+            ) : (
+              <Link className="button button-secondary" to="/logg-inn">
+                Logg inn og lagre i skyen
+              </Link>
+            )}
           </div>
           <p className="help-text">
             Trykk på en brikke for å velge den, eller hold inne et kort øyeblikk for å fremheve
             lovlige trekk og dra brikken til ønsket felt.
           </p>
+          <div className="board-analysis-block">
+            <EvaluationBar
+              evaluation={evaluation}
+              whiteLabel="på denne enheten"
+              blackLabel="på denne enheten"
+              isAnalyzing={isAnalyzing}
+            />
+            {evaluationError ? <p className="error-text">{evaluationError}</p> : null}
+            {lastMoveInsight ? <p className="support-text">{lastMoveInsight}</p> : null}
+          </div>
         </section>
       ) : null}
 
@@ -221,4 +301,32 @@ export function HomePage() {
       </section>
     </div>
   );
+}
+
+function describeMoveImpact(
+  san: string,
+  movedBy: "w" | "b",
+  beforePercent: number,
+  afterPercent: number,
+  delta: number,
+) {
+  const side = movedBy === "w" ? "Hvit" : "Sort";
+
+  if (delta >= 8) {
+    return `${side} sitt trekk ${san} løftet balansen fra ${beforePercent}% til ${afterPercent}%. Dette ser sterkt ut.`;
+  }
+
+  if (delta >= 3) {
+    return `${side} sitt trekk ${san} forbedret balansen fra ${beforePercent}% til ${afterPercent}%.`;
+  }
+
+  if (delta <= -8) {
+    return `${side} sitt trekk ${san} senket balansen fra ${beforePercent}% til ${afterPercent}%. Dette kan være verdt å analysere nærmere.`;
+  }
+
+  if (delta <= -3) {
+    return `${side} sitt trekk ${san} ga bort litt balanse: ${beforePercent}% til ${afterPercent}%.`;
+  }
+
+  return `${side} sitt trekk ${san} holdt stillingen ganske stabil: ${beforePercent}% til ${afterPercent}%.`;
 }

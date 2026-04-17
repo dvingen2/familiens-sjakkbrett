@@ -5,8 +5,10 @@ export type Side = "w" | "b";
 export interface Profile {
   id: string;
   displayName: string;
-  email: string;
+  username: string;
+  email?: string;
   pin?: string;
+  avatarSeed?: string;
 }
 
 export interface MoveRecord {
@@ -38,4 +40,12 @@ export interface GameRecord {
 
 export interface SessionState {
   currentUserId: string | null;
+}
+
+export interface AppSession {
+  token: string;
+  userId: string;
+  username: string;
+  createdAt: string;
+  expiresAt: string;
 }

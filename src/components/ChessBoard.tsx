@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { PieceSymbol, Square } from "chess.js";
-import { FILES, PIECE_SYMBOLS, RANKS, getTurn, legalMovesForSquare, listSquares } from "../lib/chess";
+import { FILES, RANKS, getTurn, legalMovesForSquare, listSquares } from "../lib/chess";
 import type { Side } from "../types";
 
 interface ChessBoardProps {
   fen: string;
   orientation?: Side;
+  movableColor?: Side | "both";
   interactive?: boolean;
   onMove?: (from: Square, to: Square) => boolean;
 }
 
 interface DragState {
   from: Square;
-  piece: string;
+  pieceSrc: string;
+  pieceAlt: string;
   x: number;
   y: number;
 }
@@ -25,10 +27,38 @@ interface BoardPiece {
 }
 
 const HOLD_DELAY_MS = 280;
+const PIECE_ASSETS: Record<Side, Record<PieceSymbol, string>> = {
+  w: {
+    p: new URL("../../brikker/bonde_Filled=False.svg", import.meta.url).href,
+    n: new URL("../../brikker/springer_Filled=False-2.svg", import.meta.url).href,
+    b: new URL("../../brikker/løper_Filled=False-3.svg", import.meta.url).href,
+    r: new URL("../../brikker/tårn_Filled=False-1.svg", import.meta.url).href,
+    q: new URL("../../brikker/dronning_Filled=False-4.svg", import.meta.url).href,
+    k: new URL("../../brikker/konge_Filled=False-5.svg", import.meta.url).href,
+  },
+  b: {
+    p: new URL("../../brikker/bonde_Filled=True.svg", import.meta.url).href,
+    n: new URL("../../brikker/springer_Filled=True-2.svg", import.meta.url).href,
+    b: new URL("../../brikker/løper_Filled=True-3.svg", import.meta.url).href,
+    r: new URL("../../brikker/tårn_Filled=True-1.svg", import.meta.url).href,
+    q: new URL("../../brikker/dronning_Filled=True-4.svg", import.meta.url).href,
+    k: new URL("../../brikker/konge_Filled=True-5.svg", import.meta.url).href,
+  },
+};
+
+const PIECE_NAMES: Record<PieceSymbol, string> = {
+  p: "bonde",
+  n: "springer",
+  b: "løper",
+  r: "tårn",
+  q: "dronning",
+  k: "konge",
+};
 
 export function ChessBoard({
   fen,
   orientation = "w",
+  movableColor = "both",
   interactive = true,
   onMove,
 }: ChessBoardProps) {
@@ -54,6 +84,14 @@ export function ChessBoard({
     setLegalTargets(legalMovesForSquare(fen, square));
   }
 
+  function canControlPiece(piece: BoardPiece) {
+    if (movableColor === "both") {
+      return piece.color === turn;
+    }
+
+    return piece.color === turn && piece.color === movableColor;
+  }
+
   function clearInteractionState() {
     setDragState(null);
     if (activePointerRef.current !== null && boardRef.current) {
@@ -65,7 +103,7 @@ export function ChessBoard({
   }
 
   function onPiecePointerDown(event: ReactPointerEvent<HTMLButtonElement>, piece: BoardPiece) {
-    if (!interactive || piece.color !== turn) {
+    if (!interactive || !canControlPiece(piece)) {
       return;
     }
 
@@ -76,7 +114,8 @@ export function ChessBoard({
       beginSelection(piece.square);
       setDragState({
         from: piece.square,
-        piece: PIECE_SYMBOLS[piece.color][piece.type],
+        pieceSrc: PIECE_ASSETS[piece.color][piece.type],
+        pieceAlt: `${piece.color === "w" ? "Hvit" : "Sort"} ${PIECE_NAMES[piece.type]}`,
         x: event.clientX,
         y: event.clientY,
       });
@@ -155,7 +194,7 @@ export function ChessBoard({
       }
     }
 
-    if (piece && piece.color === turn) {
+    if (piece && canControlPiece(piece)) {
       beginSelection(square);
       return;
     }
@@ -213,9 +252,14 @@ export function ChessBoard({
                     event.stopPropagation();
                     onSquareClick(square, piece);
                   }}
-                  aria-label={`${piece.color === "w" ? "Hvit" : "Sort"} ${piece.type} på ${square}`}
+                  aria-label={`${piece.color === "w" ? "Hvit" : "Sort"} ${PIECE_NAMES[piece.type]} på ${square}`}
                 >
-                  {PIECE_SYMBOLS[piece.color][piece.type]}
+                  <img
+                    className="piece-image"
+                    src={PIECE_ASSETS[piece.color][piece.type]}
+                    alt=""
+                    draggable="false"
+                  />
                 </button>
               ) : null}
             </div>
@@ -229,7 +273,7 @@ export function ChessBoard({
           style={{ left: dragState.x, top: dragState.y }}
           aria-hidden="true"
         >
-          {dragState.piece}
+          <img className="drag-ghost-image" src={dragState.pieceSrc} alt={dragState.pieceAlt} />
         </div>
       ) : null}
     </div>

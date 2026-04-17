@@ -22,9 +22,11 @@ export function getProfileInitials(displayName: string) {
   return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
 }
 
-export function getProfileColor(profile: Pick<Profile, "id">) {
+export function getProfileColor(profile: Pick<Profile, "id" | "avatarSeed">) {
   let hash = 0;
-  for (const char of profile.id) {
+  const source = profile.avatarSeed ?? profile.id;
+
+  for (const char of source) {
     hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   }
 

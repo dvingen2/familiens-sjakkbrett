@@ -3,10 +3,21 @@ import { useParams } from "react-router-dom";
 import type { Square } from "chess.js";
 import { useAppContext } from "../context/AppContext";
 import { ChessBoard } from "../components/ChessBoard";
+import { EvaluationBar } from "../components/EvaluationBar";
+import { TurnIndicator } from "../components/TurnIndicator";
 import { attemptMove, getFriendlyGameMessage, getStatusText, getTurn } from "../lib/chess";
 import { getGameById, saveMove, subscribeToGame } from "../lib/appClient";
 import { getPostGameFeedback } from "../lib/gamification";
+import type { PositionEvaluation } from "../lib/stockfish";
+import { usePositionEvaluation } from "../lib/usePositionEvaluation";
 import type { GameRecord } from "../types";
+
+interface PendingMoveInsight {
+  afterFen: string;
+  movedBy: "w" | "b";
+  beforeWhiteChance: number;
+  san: string;
+}
 
 export function GamePage() {
   const { gameId } = useParams();
@@ -14,7 +25,31 @@ export function GamePage() {
   const [game, setGame] = useState<GameRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pendingMoveInsight, setPendingMoveInsight] = useState<PendingMoveInsight | null>(null);
+  const [lastMoveInsight, setLastMoveInsight] = useState<string | null>(null);
   const currentUserId = profile?.id ?? undefined;
+  const { evaluation, isAnalyzing, error: evaluationError } = usePositionEvaluation(
+    game?.currentFen ?? null,
+    10,
+  );
+
+  function mergeWithCurrent(nextGame: GameRecord | null) {
+    setGame((current) => {
+      if (!nextGame) {
+        return current;
+      }
+
+      if (!current) {
+        return nextGame;
+      }
+
+      if (nextGame.moveHistory.length < current.moveHistory.length) {
+        return current;
+      }
+
+      return nextGame;
+    });
+  }
 
   useEffect(() => {
     if (!gameId) {
@@ -28,7 +63,7 @@ export function GamePage() {
       try {
         const nextGame = await getGameById(gameId);
         if (!active) return;
-        setGame(nextGame);
+        mergeWithCurrent(nextGame);
         setError(null);
       } catch (cause) {
         if (!active) return;
@@ -43,7 +78,7 @@ export function GamePage() {
     const unsubscribe = subscribeToGame(gameId, () => {
       void (async () => {
         const fresh = await getGameById(gameId);
-        setGame(fresh);
+        mergeWithCurrent(fresh);
       })();
     });
 
@@ -53,10 +88,55 @@ export function GamePage() {
     };
   }, [gameId]);
 
+  useEffect(() => {
+    if (!evaluation || !pendingMoveInsight) {
+      return;
+    }
+
+    if (evaluation.fen !== pendingMoveInsight.afterFen) {
+      return;
+    }
+
+    const before = pendingMoveInsight.movedBy === "w"
+      ? pendingMoveInsight.beforeWhiteChance
+      : 1 - pendingMoveInsight.beforeWhiteChance;
+    const after = pendingMoveInsight.movedBy === "w"
+      ? evaluation.whiteChance
+      : evaluation.blackChance;
+    const beforePercent = Math.round(before * 100);
+    const afterPercent = Math.round(after * 100);
+    const delta = afterPercent - beforePercent;
+
+    setLastMoveInsight(
+      describeMoveImpact(pendingMoveInsight.san, pendingMoveInsight.movedBy, beforePercent, afterPercent, delta),
+    );
+    setPendingMoveInsight(null);
+  }, [evaluation, pendingMoveInsight]);
+
   const orientation = useMemo(() => {
     if (!game) return "w" as const;
     if (game.blackUserId && game.blackUserId === currentUserId) return "b" as const;
     return "w" as const;
+  }, [currentUserId, game]);
+
+  const movableColor = useMemo(() => {
+    if (!game) {
+      return "both" as const;
+    }
+
+    if (game.mode !== "online") {
+      return "both" as const;
+    }
+
+    if (game.whiteUserId === currentUserId) {
+      return "w" as const;
+    }
+
+    if (game.blackUserId === currentUserId) {
+      return "b" as const;
+    }
+
+    return null;
   }, [currentUserId, game]);
 
   if (isLoading) {
@@ -96,6 +176,13 @@ export function GamePage() {
       lastMoveAt: new Date().toISOString(),
     };
 
+    setPendingMoveInsight({
+      afterFen: result.fen,
+      movedBy: getTurn(currentGame.currentFen),
+      beforeWhiteChance: evaluation?.whiteChance ?? 0.5,
+      san: result.move.san,
+    });
+
     setGame(nextGame);
     void (async () => {
       try {
@@ -105,7 +192,7 @@ export function GamePage() {
           fen: result.fen,
           pgn: result.pgn,
         });
-        setGame(persisted);
+        mergeWithCurrent(persisted);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "Kunne ikke lagre trekk.");
       }
@@ -130,23 +217,55 @@ export function GamePage() {
           </div>
 
           <div className="game-status">
-            <span className="pill">{getTurn(game.currentFen) === "w" ? "Hvit i trekk" : "Sort i trekk"}</span>
-            <span>{getStatusText(game.currentFen)}</span>
+            <TurnIndicator
+              turn={getTurn(game.currentFen)}
+              whiteLabel={game.whiteName}
+              blackLabel={game.blackName}
+              statusText={getStatusText(game.currentFen)}
+            />
           </div>
         </div>
 
-        <ChessBoard fen={game.currentFen} orientation={orientation} onMove={handleMove} />
+        <ChessBoard
+          fen={game.currentFen}
+          orientation={orientation}
+          movableColor={movableColor ?? "both"}
+          interactive={game.mode === "local-pass-play" || Boolean(movableColor)}
+          onMove={handleMove}
+        />
 
         <p className="help-text">
           Trykk på en brikke for å velge den, eller hold inne et kort øyeblikk for å fremheve
           lovlige trekk og dra brikken til ønsket felt.
         </p>
+        {game.mode === "online" && movableColor ? (
+          <p className="support-text">
+            Du spiller som {movableColor === "w" ? "hvit" : "sort"} i dette partiet.
+          </p>
+        ) : null}
+        {game.mode === "online" && !movableColor ? (
+          <p className="support-text">
+            Dette online-partiet kan bare spilles av de to registrerte spillerne.
+          </p>
+        ) : null}
         <p className="support-text">
           {getFriendlyGameMessage(game.currentFen, game.moveHistory.length)}
         </p>
       </section>
 
       <aside className="stack-md">
+        <section className="card">
+          <h2>Styrkeforhold</h2>
+          <EvaluationBar
+            evaluation={evaluation}
+            whiteLabel={game.whiteName}
+            blackLabel={game.blackName}
+            isAnalyzing={isAnalyzing}
+          />
+          {evaluationError ? <p className="error-text">{evaluationError}</p> : null}
+          {lastMoveInsight ? <p className="support-text">{lastMoveInsight}</p> : null}
+        </section>
+
         <section className="card">
           <h2>Partiinformasjon</h2>
           <div className="stack-sm">
@@ -185,4 +304,32 @@ export function GamePage() {
       </aside>
     </div>
   );
+}
+
+function describeMoveImpact(
+  san: string,
+  movedBy: "w" | "b",
+  beforePercent: number,
+  afterPercent: number,
+  delta: number,
+) {
+  const side = movedBy === "w" ? "Hvit" : "Sort";
+
+  if (delta >= 8) {
+    return `${side} sitt trekk ${san} løftet balansen fra ${beforePercent}% til ${afterPercent}%. Dette ser ut som et sterkt trekk.`;
+  }
+
+  if (delta >= 3) {
+    return `${side} sitt trekk ${san} forbedret stillingen fra ${beforePercent}% til ${afterPercent}%.`;
+  }
+
+  if (delta <= -8) {
+    return `${side} sitt trekk ${san} senket balansen fra ${beforePercent}% til ${afterPercent}%. Kanskje dette er verdt å se nærmere på.`;
+  }
+
+  if (delta <= -3) {
+    return `${side} sitt trekk ${san} ga bort litt balanse: ${beforePercent}% til ${afterPercent}%.`;
+  }
+
+  return `${side} sitt trekk ${san} holdt stillingen ganske stabil: ${beforePercent}% til ${afterPercent}%.`;
 }

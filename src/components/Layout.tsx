@@ -11,7 +11,7 @@ export function Layout() {
     <div className="shell">
       {!isOnline ? (
         <div className="offline-banner">
-          Offline-modus er aktiv. Lokale spill og familieprofiler virker fortsatt på denne enheten.
+          Offline-modus er aktiv. Lokale spill virker fortsatt på denne enheten.
         </div>
       ) : null}
 
@@ -27,7 +27,7 @@ export function Layout() {
         <nav className="nav">
           <NavLink to="/">Hjem</NavLink>
           <NavLink to="/mine-spill">Mine spill</NavLink>
-          <NavLink to="/logg-inn">Logg inn</NavLink>
+          <NavLink to="/logg-inn">{profile ? "Profil" : "Logg inn"}</NavLink>
         </nav>
 
         <div className="topbar-user">
@@ -35,7 +35,7 @@ export function Layout() {
             <>
               <span className="signed-in-chip">
                 <ProfileAvatar profile={profile} size="sm" />
-                <span className="signed-in-as">Innlogget som {profile.displayName}</span>
+                <span className="signed-in-as">Innlogget som @{profile.username}</span>
               </span>
               <button
                 type="button"

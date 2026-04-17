@@ -8,9 +8,10 @@ import { TurnIndicator } from "../components/TurnIndicator";
 import { attemptMove, getFriendlyGameMessage, getStatusText, getTurn } from "../lib/chess";
 import { getGameById, saveMove, subscribeToGame } from "../lib/appClient";
 import { getPostGameFeedback } from "../lib/gamification";
+import { getLastSeenMoveId, getUnreadMoveCount, markGameSeen } from "../lib/storage";
 import type { PositionEvaluation } from "../lib/stockfish";
 import { usePositionEvaluation } from "../lib/usePositionEvaluation";
-import type { GameRecord } from "../types";
+import type { GameRecord, Profile } from "../types";
 
 interface PendingMoveInsight {
   afterFen: string;
@@ -27,6 +28,7 @@ export function GamePage() {
   const [error, setError] = useState<string | null>(null);
   const [pendingMoveInsight, setPendingMoveInsight] = useState<PendingMoveInsight | null>(null);
   const [lastMoveInsight, setLastMoveInsight] = useState<string | null>(null);
+  const [seenMoveId, setSeenMoveId] = useState<string | null>(null);
   const currentUserId = profile?.id ?? undefined;
   const { evaluation, isAnalyzing, error: evaluationError } = usePositionEvaluation(
     game?.currentFen ?? null,
@@ -113,11 +115,24 @@ export function GamePage() {
     setPendingMoveInsight(null);
   }, [evaluation, pendingMoveInsight]);
 
+  useEffect(() => {
+    if (!gameId) {
+      setSeenMoveId(null);
+      return;
+    }
+
+    setSeenMoveId(getLastSeenMoveId(gameId, currentUserId));
+  }, [currentUserId, gameId]);
+
+  const playerSide = useMemo(() => resolvePlayerSide(game, profile), [game, profile]);
+
   const orientation = useMemo(() => {
-    if (!game) return "w" as const;
-    if (game.blackUserId && game.blackUserId === currentUserId) return "b" as const;
+    if (playerSide === "b") {
+      return "b" as const;
+    }
+
     return "w" as const;
-  }, [currentUserId, game]);
+  }, [playerSide]);
 
   const movableColor = useMemo(() => {
     if (!game) {
@@ -128,16 +143,46 @@ export function GamePage() {
       return "both" as const;
     }
 
-    if (game.whiteUserId === currentUserId) {
-      return "w" as const;
+    return playerSide;
+  }, [game, playerSide]);
+
+  const latestMove = game?.moveHistory[game.moveHistory.length - 1] ?? null;
+  const unreadMoveCount = useMemo(() => {
+    if (!game || game.mode !== "online") {
+      return 0;
     }
 
-    if (game.blackUserId === currentUserId) {
-      return "b" as const;
+    if (game.moveHistory.length === 0) {
+      return 0;
     }
 
-    return null;
-  }, [currentUserId, game]);
+    const viewedMoveId = seenMoveId;
+    if (!viewedMoveId) {
+      return game.moveHistory.length;
+    }
+
+    const lastSeenIndex = game.moveHistory.findIndex((move) => move.id === viewedMoveId);
+    if (lastSeenIndex < 0) {
+      return game.moveHistory.length;
+    }
+
+    return Math.max(0, game.moveHistory.length - lastSeenIndex - 1);
+  }, [game, seenMoveId]);
+
+  useEffect(() => {
+    if (!game || game.mode !== "online" || !latestMove) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      markGameSeen(game.id, latestMove.id, currentUserId);
+      setSeenMoveId(latestMove.id);
+    }, unreadMoveCount > 0 ? 900 : 120);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [currentUserId, game, latestMove, unreadMoveCount]);
 
   if (isLoading) {
     return (
@@ -231,6 +276,8 @@ export function GamePage() {
           orientation={orientation}
           movableColor={movableColor ?? "both"}
           interactive={game.mode === "local-pass-play" || Boolean(movableColor)}
+          lastMove={latestMove}
+          animateLastMove={game.mode !== "online" || unreadMoveCount > 0}
           onMove={handleMove}
         />
 
@@ -238,6 +285,20 @@ export function GamePage() {
           Trykk på en brikke for å velge den, eller hold inne et kort øyeblikk for å fremheve
           lovlige trekk og dra brikken til ønsket felt.
         </p>
+        {latestMove ? (
+          <p className="support-text last-move-text">
+            Siste trekk: <strong>{latestMove.san}</strong>
+            {" · "}
+            {latestMove.from} → {latestMove.to}
+          </p>
+        ) : null}
+        {game.mode === "online" && unreadMoveCount > 0 ? (
+          <p className="support-text">
+            {unreadMoveCount === 1
+              ? "Det kom ett nytt trekk siden sist du åpnet partiet."
+              : `Det kom ${unreadMoveCount} nye trekk siden sist du åpnet partiet.`}
+          </p>
+        ) : null}
         {game.mode === "online" && movableColor ? (
           <p className="support-text">
             Du spiller som {movableColor === "w" ? "hvit" : "sort"} i dette partiet.
@@ -304,6 +365,33 @@ export function GamePage() {
       </aside>
     </div>
   );
+}
+
+function resolvePlayerSide(game: GameRecord | null, profile: Profile | null) {
+  if (!game || !profile || game.mode !== "online") {
+    return null;
+  }
+
+  if (game.whiteUserId && game.whiteUserId === profile.id) {
+    return "w" as const;
+  }
+
+  if (game.blackUserId && game.blackUserId === profile.id) {
+    return "b" as const;
+  }
+
+  const normalizedDisplayName = profile.displayName.trim().toLowerCase();
+  const normalizedUsername = profile.username.trim().toLowerCase();
+
+  if (game.whiteName.trim().toLowerCase() === normalizedDisplayName || game.whiteName.trim().toLowerCase() === normalizedUsername) {
+    return "w" as const;
+  }
+
+  if (game.blackName.trim().toLowerCase() === normalizedDisplayName || game.blackName.trim().toLowerCase() === normalizedUsername) {
+    return "b" as const;
+  }
+
+  return null;
 }
 
 function describeMoveImpact(

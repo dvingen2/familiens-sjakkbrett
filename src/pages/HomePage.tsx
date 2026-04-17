@@ -37,6 +37,7 @@ export function HomePage() {
   const allGames = getGames();
   const snapshot = getGamificationSnapshot(allGames, profile);
   const quickFeedback = quickGame ? getPostGameFeedback(quickGame) : null;
+  const latestQuickMove = quickGame?.moveHistory[quickGame.moveHistory.length - 1] ?? null;
 
   useEffect(() => {
     if (!evaluation || !pendingMoveInsight) {
@@ -213,7 +214,11 @@ export function HomePage() {
             </div>
           </div>
 
-          <ChessBoard fen={quickGame.currentFen} onMove={handleMove} />
+          <ChessBoard
+            fen={quickGame.currentFen}
+            lastMove={latestQuickMove}
+            onMove={handleMove}
+          />
           <div className="quickplay-actions">
             <button
               type="button"
@@ -236,6 +241,13 @@ export function HomePage() {
             Trykk på en brikke for å velge den, eller hold inne et kort øyeblikk for å fremheve
             lovlige trekk og dra brikken til ønsket felt.
           </p>
+          {latestQuickMove ? (
+            <p className="support-text last-move-text">
+              Siste trekk: <strong>{latestQuickMove.san}</strong>
+              {" · "}
+              {latestQuickMove.from} → {latestQuickMove.to}
+            </p>
+          ) : null}
           <div className="board-analysis-block">
             <EvaluationBar
               evaluation={evaluation}

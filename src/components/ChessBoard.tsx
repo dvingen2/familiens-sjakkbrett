@@ -2,13 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { PieceSymbol, Square } from "chess.js";
 import { FILES, RANKS, getTurn, legalMovesForSquare, listSquares } from "../lib/chess";
-import type { Side } from "../types";
+import type { MoveRecord, Side } from "../types";
 
 interface ChessBoardProps {
   fen: string;
   orientation?: Side;
   movableColor?: Side | "both";
   interactive?: boolean;
+  lastMove?: Pick<MoveRecord, "id" | "from" | "to"> | null;
+  animateLastMove?: boolean;
   onMove?: (from: Square, to: Square) => boolean;
 }
 
@@ -26,13 +28,27 @@ interface BoardPiece {
   color: Side;
 }
 
+interface MoveAnimation {
+  id: string;
+  to: Square;
+  pieceSrc: string;
+  pieceAlt: string;
+  x: number;
+  y: number;
+  size: number;
+  dx: number;
+  dy: number;
+  tilt: number;
+  active: boolean;
+}
+
 const HOLD_DELAY_MS = 280;
 const PIECE_ASSETS: Record<Side, Record<PieceSymbol, string>> = {
   w: {
     p: new URL("../../brikker/bonde_Filled=False.svg", import.meta.url).href,
     n: new URL("../../brikker/springer_Filled=False-2.svg", import.meta.url).href,
     b: new URL("../../brikker/løper_Filled=False-3.svg", import.meta.url).href,
-    r: new URL("../../brikker/tårn_Filled=False-1.svg", import.meta.url).href,
+    r: new URL("../../brikker/tarn_Filled=False-1.svg", import.meta.url).href,
     q: new URL("../../brikker/dronning_Filled=False-4.svg", import.meta.url).href,
     k: new URL("../../brikker/konge_Filled=False-5.svg", import.meta.url).href,
   },
@@ -40,7 +56,7 @@ const PIECE_ASSETS: Record<Side, Record<PieceSymbol, string>> = {
     p: new URL("../../brikker/bonde_Filled=True.svg", import.meta.url).href,
     n: new URL("../../brikker/springer_Filled=True-2.svg", import.meta.url).href,
     b: new URL("../../brikker/løper_Filled=True-3.svg", import.meta.url).href,
-    r: new URL("../../brikker/tårn_Filled=True-1.svg", import.meta.url).href,
+    r: new URL("../../brikker/tarn_Filled=True-1.svg", import.meta.url).href,
     q: new URL("../../brikker/dronning_Filled=True-4.svg", import.meta.url).href,
     k: new URL("../../brikker/konge_Filled=True-5.svg", import.meta.url).href,
   },
@@ -60,6 +76,8 @@ export function ChessBoard({
   orientation = "w",
   movableColor = "both",
   interactive = true,
+  lastMove = null,
+  animateLastMove = true,
   onMove,
 }: ChessBoardProps) {
   const boardRef = useRef<HTMLDivElement | null>(null);
@@ -68,6 +86,7 @@ export function ChessBoard({
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
   const [legalTargets, setLegalTargets] = useState<Square[]>([]);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [moveAnimation, setMoveAnimation] = useState<MoveAnimation | null>(null);
 
   const chessState = useMemo(() => parseFen(fen), [fen]);
   const orderedSquares = useMemo(() => orientSquares(orientation), [orientation]);
@@ -78,6 +97,59 @@ export function ChessBoard({
       window.clearTimeout(holdTimerRef.current ?? undefined);
     };
   }, []);
+
+  useEffect(() => {
+    if (!lastMove || !boardRef.current || !animateLastMove) {
+      setMoveAnimation(null);
+      return;
+    }
+
+    const fromSquare = lastMove.from as Square;
+    const toSquare = lastMove.to as Square;
+    const movedPiece = chessState.get(toSquare);
+    if (!movedPiece) {
+      setMoveAnimation(null);
+      return;
+    }
+
+    const boardSize = boardRef.current.clientWidth;
+    if (!boardSize) {
+      return;
+    }
+
+    const squareSize = boardSize / 8;
+    const fromPosition = getSquarePosition(fromSquare, orientation, squareSize);
+    const toPosition = getSquarePosition(toSquare, orientation, squareSize);
+
+    const nextAnimation: MoveAnimation = {
+      id: lastMove.id,
+      to: toSquare,
+      pieceSrc: PIECE_ASSETS[movedPiece.color][movedPiece.type],
+      pieceAlt: `${movedPiece.color === "w" ? "Hvit" : "Sort"} ${PIECE_NAMES[movedPiece.type]}`,
+      x: fromPosition.x,
+      y: fromPosition.y,
+      size: squareSize,
+      dx: toPosition.x - fromPosition.x,
+      dy: toPosition.y - fromPosition.y,
+      tilt: Math.max(-8, Math.min(8, (toPosition.x - fromPosition.x) / squareSize * 2.2)),
+      active: false,
+    };
+
+    setMoveAnimation(nextAnimation);
+
+    const frame = window.requestAnimationFrame(() => {
+      setMoveAnimation((current) => (current?.id === nextAnimation.id ? { ...current, active: true } : current));
+    });
+
+    const timeout = window.setTimeout(() => {
+      setMoveAnimation((current) => (current?.id === nextAnimation.id ? null : current));
+    }, 320);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timeout);
+    };
+  }, [animateLastMove, chessState, lastMove, orientation]);
 
   function beginSelection(square: Square) {
     setSelectedSquare(square);
@@ -219,6 +291,9 @@ export function ChessBoard({
           const isDark = (fileIndex + rankIndex) % 2 === 1;
           const isSelected = selectedSquare === square;
           const isTarget = legalTargets.includes(square);
+          const isLastFrom = lastMove?.from === square;
+          const isLastTo = lastMove?.to === square;
+          const hidePieceForAnimation = moveAnimation?.to === square;
 
           return (
             <div
@@ -228,6 +303,8 @@ export function ChessBoard({
                 isDark ? "square-dark" : "square-light",
                 isSelected ? "square-selected" : "",
                 isTarget ? "square-target" : "",
+                isLastFrom ? "square-last-from" : "",
+                isLastTo ? "square-last-to" : "",
               ].join(" ")}
               data-square={square}
               onClick={() => onSquareClick(square, piece)}
@@ -243,7 +320,7 @@ export function ChessBoard({
             >
               <span className="coord-file">{square[0]}</span>
               <span className="coord-rank">{square[1]}</span>
-              {piece ? (
+              {piece && !hidePieceForAnimation ? (
                 <button
                   type="button"
                   className="piece"
@@ -274,6 +351,23 @@ export function ChessBoard({
           aria-hidden="true"
         >
           <img className="drag-ghost-image" src={dragState.pieceSrc} alt={dragState.pieceAlt} />
+        </div>
+      ) : null}
+      {moveAnimation ? (
+        <div
+          className={`move-ghost ${moveAnimation.active ? "move-ghost-active" : ""}`}
+          style={{
+            width: `${moveAnimation.size}px`,
+            height: `${moveAnimation.size}px`,
+            left: `${moveAnimation.x}px`,
+            top: `${moveAnimation.y}px`,
+            transform: moveAnimation.active
+              ? `translate(${moveAnimation.dx}px, ${moveAnimation.dy}px) scale(1.05) rotate(${moveAnimation.tilt * 0.35}deg)`
+              : `translate(0, 0) scale(0.92) rotate(${moveAnimation.tilt}deg)`,
+          }}
+          aria-hidden="true"
+        >
+          <img className="move-ghost-image" src={moveAnimation.pieceSrc} alt={moveAnimation.pieceAlt} />
         </div>
       ) : null}
     </div>
@@ -314,4 +408,23 @@ function orientSquares(orientation: Side): Square[] {
   }
 
   return [...base].reverse();
+}
+
+function getSquarePosition(square: Square, orientation: Side, squareSize: number) {
+  const file = square[0] as (typeof FILES)[number];
+  const rank = Number(square[1]) as (typeof RANKS)[number];
+  const fileIndex = FILES.indexOf(file);
+  const rankIndex = RANKS.indexOf(rank);
+
+  if (orientation === "w") {
+    return {
+      x: fileIndex * squareSize,
+      y: rankIndex * squareSize,
+    };
+  }
+
+  return {
+    x: (7 - fileIndex) * squareSize,
+    y: (7 - rankIndex) * squareSize,
+  };
 }

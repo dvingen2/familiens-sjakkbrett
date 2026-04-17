@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAppContext } from "../context/AppContext";
 import { createGameForCurrentUser, listGamesForUser } from "../lib/appClient";
 import { ProfileAvatar } from "../components/ProfileAvatar";
+import { getUnreadMoveCount } from "../lib/storage";
 import type { GameRecord, Profile } from "../types";
 
 export function GamesPage() {
@@ -34,6 +35,7 @@ export function GamesPage() {
   const onlineGames = games.filter(
     (game) => game.whiteUserId === currentUser?.id || game.blackUserId === currentUser?.id,
   );
+  const currentViewerId = profile?.id ?? null;
 
   const groupedOpponents = Object.values(
     onlineGames.reduce<Record<string, { name: string; active: number; finished: number }>>(
@@ -57,7 +59,7 @@ export function GamesPage() {
   const opponentSummaries = useMemo(() => {
     return profiles
       .filter((item) => item.id !== currentUser?.id)
-      .map((opponent) => summarizeOpponent(opponent, onlineGames, currentUser?.id))
+      .map((opponent) => summarizeOpponent(opponent, onlineGames, currentUser?.id, currentViewerId))
       .sort((left, right) => {
         const relevance = getSearchRelevance(right.profile, searchQuery) - getSearchRelevance(left.profile, searchQuery);
         if (searchQuery.trim() && relevance !== 0) {
@@ -189,6 +191,11 @@ export function GamesPage() {
                     <span className={`pill ${opponent.activeGame ? "status-active" : "ghost-pill"}`}>
                       {opponent.activeGame ? "Fortsett pågående" : "Start nytt spill"}
                     </span>
+                    {opponent.unreadMoveCount > 0 ? (
+                      <span className="pill unread-pill">
+                        {opponent.unreadMoveCount === 1 ? "1 nytt trekk" : `${opponent.unreadMoveCount} nye trekk`}
+                      </span>
+                    ) : null}
                     <span>
                       {opponent.latestPlayedAt
                         ? `Sist spilt ${new Date(opponent.latestPlayedAt).toLocaleDateString("no-NO")}`
@@ -214,6 +221,13 @@ export function GamesPage() {
                   <span>{game.mode === "online" ? "Hver sin enhet" : "Samme enhet"}</span>
                 </div>
                 <div className="game-meta">
+                  {game.mode === "online" && getUnreadMoveCount(game, currentViewerId) > 0 ? (
+                    <span className="pill unread-pill">
+                      {getUnreadMoveCount(game, currentViewerId) === 1
+                        ? "Nytt trekk"
+                        : `${getUnreadMoveCount(game, currentViewerId)} nye`}
+                    </span>
+                  ) : null}
                   <span className={`pill status-${game.status}`}>{game.status}</span>
                   <span>{new Date(game.updatedAt).toLocaleDateString("no-NO")}</span>
                 </div>
@@ -226,7 +240,7 @@ export function GamesPage() {
   );
 }
 
-function summarizeOpponent(opponent: Profile, games: GameRecord[], currentUserId?: string) {
+function summarizeOpponent(opponent: Profile, games: GameRecord[], currentUserId?: string, viewerId?: string | null) {
   const relatedGames = games.filter((game) => {
     const players = [game.whiteUserId, game.blackUserId];
     return players.includes(currentUserId) && players.includes(opponent.id);
@@ -243,6 +257,7 @@ function summarizeOpponent(opponent: Profile, games: GameRecord[], currentUserId
     activeCount: relatedGames.filter((game) => game.status !== "finished").length,
     finishedCount: relatedGames.filter((game) => game.status === "finished").length,
     latestPlayedAt,
+    unreadMoveCount: relatedGames.reduce((sum, game) => sum + getUnreadMoveCount(game, viewerId), 0),
   };
 }
 

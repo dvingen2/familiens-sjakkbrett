@@ -7,6 +7,7 @@ const GAMES_KEY = "familiesjakk.games";
 const SESSION_KEY = "familiesjakk.session";
 const QUICK_GAME_KEY = "familiesjakk.quick-game-id";
 const APP_SESSION_TOKEN_KEY = "familiesjakk.app-session-token";
+const GAME_VIEWS_KEY = "familiesjakk.game-views";
 
 function readJson<T>(key: string, fallback: T): T {
   const raw = localStorage.getItem(key);
@@ -21,6 +22,14 @@ function readJson<T>(key: string, fallback: T): T {
 
 function writeJson<T>(key: string, value: T) {
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function getViewerKey(viewerId?: string | null) {
+  return viewerId?.trim() ? viewerId : "guest";
+}
+
+function getGameViewLookup() {
+  return readJson<Record<string, string>>(GAME_VIEWS_KEY, {});
 }
 
 export function bootstrapLocalData() {
@@ -85,6 +94,42 @@ export function setStoredAppSessionToken(token: string | null) {
   }
 
   localStorage.setItem(APP_SESSION_TOKEN_KEY, token);
+}
+
+export function getLastSeenMoveId(gameId: string, viewerId?: string | null) {
+  const key = `${getViewerKey(viewerId)}:${gameId}`;
+  return getGameViewLookup()[key] ?? null;
+}
+
+export function markGameSeen(gameId: string, moveId: string | null, viewerId?: string | null) {
+  const key = `${getViewerKey(viewerId)}:${gameId}`;
+  const nextLookup = getGameViewLookup();
+
+  if (!moveId) {
+    delete nextLookup[key];
+  } else {
+    nextLookup[key] = moveId;
+  }
+
+  writeJson(GAME_VIEWS_KEY, nextLookup);
+}
+
+export function getUnreadMoveCount(game: GameRecord, viewerId?: string | null) {
+  if (game.moveHistory.length === 0) {
+    return 0;
+  }
+
+  const lastSeenMoveId = getLastSeenMoveId(game.id, viewerId);
+  if (!lastSeenMoveId) {
+    return game.moveHistory.length;
+  }
+
+  const lastSeenIndex = game.moveHistory.findIndex((move) => move.id === lastSeenMoveId);
+  if (lastSeenIndex < 0) {
+    return game.moveHistory.length;
+  }
+
+  return Math.max(0, game.moveHistory.length - lastSeenIndex - 1);
 }
 
 export function createGame(params: {

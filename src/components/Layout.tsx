@@ -26,6 +26,7 @@ export function Layout() {
 
         <nav className="nav">
           <NavLink to="/">Hjem</NavLink>
+          <NavLink to="/laer">Lær</NavLink>
           <NavLink to="/mine-spill">Mine spill</NavLink>
           <NavLink to="/logg-inn">{profile ? "Profil" : "Logg inn"}</NavLink>
         </nav>

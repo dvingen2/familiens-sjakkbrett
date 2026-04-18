@@ -8,6 +8,7 @@ const SESSION_KEY = "familiesjakk.session";
 const QUICK_GAME_KEY = "familiesjakk.quick-game-id";
 const APP_SESSION_TOKEN_KEY = "familiesjakk.app-session-token";
 const GAME_VIEWS_KEY = "familiesjakk.game-views";
+const LESSON_PROGRESS_KEY = "familiesjakk.lesson-progress";
 
 function readJson<T>(key: string, fallback: T): T {
   const raw = localStorage.getItem(key);
@@ -30,6 +31,10 @@ function getViewerKey(viewerId?: string | null) {
 
 function getGameViewLookup() {
   return readJson<Record<string, string>>(GAME_VIEWS_KEY, {});
+}
+
+function getLessonProgressLookup() {
+  return readJson<Record<string, string[]>>(LESSON_PROGRESS_KEY, {});
 }
 
 export function bootstrapLocalData() {
@@ -130,6 +135,27 @@ export function getUnreadMoveCount(game: GameRecord, viewerId?: string | null) {
   }
 
   return Math.max(0, game.moveHistory.length - lastSeenIndex - 1);
+}
+
+export function getCompletedLessonIds(viewerId?: string | null) {
+  const lookup = getLessonProgressLookup();
+  return lookup[getViewerKey(viewerId)] ?? [];
+}
+
+export function markLessonCompleted(lessonId: string, viewerId?: string | null) {
+  const key = getViewerKey(viewerId);
+  const lookup = getLessonProgressLookup();
+  const completed = new Set(lookup[key] ?? []);
+  completed.add(lessonId);
+  lookup[key] = Array.from(completed);
+  writeJson(LESSON_PROGRESS_KEY, lookup);
+}
+
+export function resetLessonProgress(viewerId?: string | null) {
+  const key = getViewerKey(viewerId);
+  const lookup = getLessonProgressLookup();
+  delete lookup[key];
+  writeJson(LESSON_PROGRESS_KEY, lookup);
 }
 
 export function createGame(params: {

@@ -7,6 +7,7 @@ import { ChessBoard } from "../components/ChessBoard";
 import { EvaluationBar } from "../components/EvaluationBar";
 import { TurnIndicator } from "../components/TurnIndicator";
 import { attemptMove, getFriendlyGameMessage, getStatusText, getTurn } from "../lib/chess";
+import { getDailyLessonChallenge } from "../lib/lessons";
 import { getGames, getOrCreateQuickLocalGame, resetQuickLocalGame, updateGame } from "../lib/storage";
 import { getGamificationSnapshot, getPostGameFeedback } from "../lib/gamification";
 import { usePositionEvaluation } from "../lib/usePositionEvaluation";
@@ -36,6 +37,7 @@ export function HomePage() {
 
   const allGames = getGames();
   const snapshot = getGamificationSnapshot(allGames, profile);
+  const dailyLesson = getDailyLessonChallenge();
   const quickFeedback = quickGame ? getPostGameFeedback(quickGame) : null;
   const latestQuickMove = quickGame?.moveHistory[quickGame.moveHistory.length - 1] ?? null;
 
@@ -118,6 +120,9 @@ export function HomePage() {
             </button>
             <Link className="button button-secondary" to="/mine-spill">
               Se flere spill
+            </Link>
+            <Link className="button button-secondary" to="/laer">
+              Start læringsløpet
             </Link>
             {profile && profiles.some((item) => item.id !== profile.id) ? (
               <Link className="button button-secondary" to="/mine-spill#spillere">
@@ -262,6 +267,38 @@ export function HomePage() {
       ) : null}
 
       <section className="grid-two">
+        <article className="card">
+          <h2>Dagens oppgave</h2>
+          {dailyLesson ? (
+            <>
+              <p>
+                <strong>{dailyLesson.title}</strong> · {dailyLesson.duration}
+              </p>
+              <p>{dailyLesson.summary}</p>
+              <div className="quickplay-actions">
+                <Link className="button button-primary" to={`/laer?lesson=${dailyLesson.id}`}>
+                  Åpne dagens leksjon
+                </Link>
+                <span className="pill ghost-pill">{dailyLesson.rewardEmoji} {dailyLesson.rewardTitle}</span>
+              </div>
+            </>
+          ) : null}
+        </article>
+
+        <article className="card">
+          <h2>Ny læringsdel</h2>
+          <p>
+            Korte leksjoner er nå på plass som første versjon. De bygger trygghet rundt brikker,
+            sjakk matt, rokade, hengende brikker og små taktiske ideer.
+          </p>
+          <div className="quickplay-actions">
+            <Link className="button button-primary" to="/laer">
+              Gå til Lær
+            </Link>
+            <span className="pill ghost-pill">10 startleksjoner klare</span>
+          </div>
+        </article>
+
         <article className="card">
           <h2>Ukas familieutfordring</h2>
           <p>{snapshot.weeklyChallenge.description}</p>

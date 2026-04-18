@@ -11,6 +11,8 @@ interface ChessBoardProps {
   interactive?: boolean;
   lastMove?: Pick<MoveRecord, "id" | "from" | "to"> | null;
   animateLastMove?: boolean;
+  highlightSquares?: Square[];
+  onSquareSelect?: (square: Square) => void;
   onMove?: (from: Square, to: Square) => boolean;
 }
 
@@ -78,6 +80,8 @@ export function ChessBoard({
   interactive = true,
   lastMove = null,
   animateLastMove = true,
+  highlightSquares = [],
+  onSquareSelect,
   onMove,
 }: ChessBoardProps) {
   const boardRef = useRef<HTMLDivElement | null>(null);
@@ -255,6 +259,11 @@ export function ChessBoard({
   }
 
   function onSquareClick(square: Square, piece?: BoardPiece) {
+    if (!interactive && onSquareSelect) {
+      onSquareSelect(square);
+      return;
+    }
+
     if (!interactive) {
       return;
     }
@@ -273,6 +282,7 @@ export function ChessBoard({
 
     setSelectedSquare(null);
     setLegalTargets([]);
+    onSquareSelect?.(square);
   }
 
   return (
@@ -293,6 +303,7 @@ export function ChessBoard({
           const isTarget = legalTargets.includes(square);
           const isLastFrom = lastMove?.from === square;
           const isLastTo = lastMove?.to === square;
+          const isHighlighted = highlightSquares.includes(square);
           const hidePieceForAnimation = moveAnimation?.to === square;
 
           return (
@@ -305,6 +316,7 @@ export function ChessBoard({
                 isTarget ? "square-target" : "",
                 isLastFrom ? "square-last-from" : "",
                 isLastTo ? "square-last-to" : "",
+                isHighlighted ? "square-highlight" : "",
               ].join(" ")}
               data-square={square}
               onClick={() => onSquareClick(square, piece)}
